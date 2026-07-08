@@ -1,0 +1,8 @@
+# Geheimnisse: der OpenChargeMap-Key wird nur lokal eingebaut, nie veröffentlicht
+src/ocm-key.local.js
+
+# Editor-/System-Müll
+node_modules/
+*.log
+Thumbs.db
+.DS_Store

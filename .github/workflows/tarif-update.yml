@@ -1,0 +1,32 @@
+name: Tarif-Update (monatlich, automatisch)
+
+on:
+  schedule:
+    - cron: "0 6 2 * *"   # am 2. jeden Monats, 06:00 UTC
+  workflow_dispatch: {}    # zusätzlich manuell startbar (Actions-Tab -> Run workflow)
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tarife per Gemini recherchieren und validieren
+        run: node automation/update-tarife.mjs
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Änderungen committen
+        run: |
+          git config user.name "tarif-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add tarife.json
+          git commit -m "Automatisches Tarif-Update $(date +%F)" || echo "Keine Änderungen."
+          git push
