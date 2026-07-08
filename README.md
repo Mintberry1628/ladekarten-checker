@@ -35,15 +35,15 @@ auf [openchargemap.org](https://openchargemap.org) registrieren → Profil → *
 2. **Spot-Preise aller Kartenkombis an einer fremden Säule**: verlinkt auf
    [chargeprice.app](https://www.chargeprice.app) / App „Ladefuchs“ (deren Live-Daten sind
    lizenzpflichtig und nicht einbettbar).
-3. **Tarife/Preise/Anbieter** (Datenbasis dieser App): ändern sich alle paar Monate.
-   **Automatisiert per geplantem Task** (läuft monatlich in Claude Code): recherchiert
-   die aktuellen Preise, aktualisiert `src/data.js`, baut neu (`sh build.sh`) und
-   veröffentlicht die neue App-Version. Danach nur noch `index.html` + `tarife.json`
-   nach `/config/www/ladekarten/` auf den Pi kopieren. Die App prüft beim Start
-   selbstständig, ob unter `https://mintberry.org/local/ladekarten/tarife.json`
-   (einstellbar auf der Startseite) ein neuerer Tarifstand liegt, und bietet die
-   Übernahme an (eigene Preis-Änderungen bleiben erhalten). Zusätzlich warnt die App,
-   wenn der Preisstand älter als 60 Tage ist.
+3. **Tarife/Preise/Anbieter** (Datenbasis dieser App): **vollautomatisch in der Cloud**
+   — GitHub Actions + Gemini recherchieren am 2. jeden Monats die Preise, validieren
+   sie streng und schreiben die neue `tarife.json`; die App holt sich beim Start den
+   neuesten Stand aller Quellen (eigener Server, eingestellte URL, GitHub). Kein PC,
+   keine Claude-Instanz, nichts zu kopieren. Einmalige Einrichtung (~10 min):
+   **[automation/README-AUTOMATION.md](automation/README-AUTOMATION.md)**.
+   Zusatznetz: lokaler Claude-Task (monatlich, falls App offen) aktualisiert auch die
+   App selbst + Artifact; die App warnt außerdem, wenn der Preisstand > 60 Tage alt ist.
+   Eigene Preis-Änderungen werden nie überschrieben.
 
 ## Projektstruktur
 

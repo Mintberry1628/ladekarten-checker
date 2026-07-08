@@ -342,12 +342,10 @@ const PREISSTAND = "2026-07-07";
 let OCM_KEY_STANDARD = "";
 
 /* Zusätzliche Update-Quellen für tarife.json (neben dem eigenen Server).
-   Die App holt sich automatisch den NEUESTEN Preisstand aller Quellen.
-   Nach GitHub-Einrichtung (siehe automation/README-AUTOMATION.md) hier die
-   raw-URL eintragen, z. B.:
-   "https://raw.githubusercontent.com/<nutzer>/ladekarten-checker/main/tarife.json" */
+   Die App holt sich automatisch den NEUESTEN Preisstand aller Quellen. */
 const UPDATE_QUELLEN = [
   "https://mintberry.org/local/ladekarten/tarife.json",
+  "https://raw.githubusercontent.com/Mintberry1628/ladekarten-checker/main/tarife.json",
 ];
 
 const FAHRZEUG_DEFAULT = {

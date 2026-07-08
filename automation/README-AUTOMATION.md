@@ -17,10 +17,10 @@ Diese 3 Schritte kann nur der Konto-Inhaber machen (Logins/Schlüssel):
   der OpenChargeMap-Key liegt NICHT im Repo — siehe .gitignore).
 - Dann im Projektordner (Git Bash oder Terminal in Claude):
   ```
-  git remote add origin https://github.com/DEIN-NUTZERNAME/ladekarten-checker.git
+  git remote add origin https://github.com/Mintberry1628/ladekarten-checker.git
   git push -u origin main
   ```
-  (Der lokale Commit existiert schon — Claude hat alles vorbereitet.)
+  (Der lokale Commit existiert schon — Claude hat alles vorbereitet. ✔ erledigt)
 
 ### 2. Gemini-API-Key holen (kostenlos)
 - https://aistudio.google.com öffnen → mit Google-Konto anmelden →
@@ -38,10 +38,8 @@ Diese 3 Schritte kann nur der Konto-Inhaber machen (Logins/Schlüssel):
   ein Commit „Automatisches Tarif-Update …“ erscheinen.
 
 ### App auf die neue Quelle zeigen lassen
-- In der App: **Start → Update-Quelle für Tarifdaten** →
-  `https://raw.githubusercontent.com/DEIN-NUTZERNAME/ladekarten-checker/main/tarife.json`
-- Oder Claude sagen: „Trag meine GitHub-URL als Update-Quelle ein“ —
-  dann wird sie fest in `src/data.js` (UPDATE_QUELLEN) eingebaut.
+- ✔ Bereits fest eingebaut: `https://raw.githubusercontent.com/Mintberry1628/ladekarten-checker/main/tarife.json`
+  steht in `src/data.js` (UPDATE_QUELLEN) — die App prüft diese Quelle automatisch.
 
 ## Wie es funktioniert
 
