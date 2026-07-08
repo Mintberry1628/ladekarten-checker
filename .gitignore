@@ -1,5 +1,9 @@
 # Geheimnisse: der OpenChargeMap-Key wird nur lokal eingebaut, nie veröffentlicht
 src/ocm-key.local.js
+# Gebaute Dateien enthalten den Key -> nicht ins öffentliche Repo
+# (Quelle der Wahrheit ist src/; tarife.json bleibt im Repo für die Updates)
+index.html
+app-artifact.html
 
 # Editor-/System-Müll
 node_modules/

@@ -29,7 +29,8 @@ cd "$(dirname "$0")"
   cat src/body.html
   echo '<script>'
   cat src/data.js
-  [ -f src/ocm-key.local.js ] && cat src/ocm-key.local.js
+  # Kein OCM-Key im Artifact: dort sind externe Abfragen eh gesperrt,
+  # und der Key soll nicht auf claude.ai liegen
   cat src/app.js
   echo '</script>'
 } > app-artifact.html

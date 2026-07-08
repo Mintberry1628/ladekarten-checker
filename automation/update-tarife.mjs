@@ -19,9 +19,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-if (!KEY) { console.error("FEHLER: GEMINI_API_KEY fehlt (GitHub-Secret setzen)."); process.exit(1); }
+const KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+// Modell-Kandidaten: erster Treffer gewinnt (404 = Modellname unbekannt -> nächster)
+const MODELLE = [process.env.GEMINI_MODEL, "gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"].filter(Boolean);
+if (!KEY) {
+  console.error("FEHLER: Kein API-Key. Im Repo unter Settings -> Secrets and variables -> Actions");
+  console.error("muss ein Secret mit EXAKT dem Namen GEMINI_API_KEY existieren.");
+  process.exit(1);
+}
 
 const alt = JSON.parse(readFileSync(join(ROOT, "tarife.json"), "utf8"));
 const heute = new Date().toISOString().slice(0, 10);
@@ -47,21 +52,51 @@ Regeln:
 Aktuelle Datenbank:
 ${JSON.stringify(alt)}`;
 
-console.log(`Frage ${MODEL} mit Google-Suche an ...`);
-const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
+// Anfrage mit Fallbacks: unbekanntes Modell (404) -> nächstes Modell;
+// Tool-Problem (400 mit Hinweis auf search/tool) -> einmal ohne Google-Suche
+// (dann werden nur unstrittige Felder übernommen, Rest bleibt alt).
+async function frage(modell, mitSuche) {
+  const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    tools: [{ google_search: {} }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 65536 },
-  }),
-});
-if (!res.ok) { console.error("FEHLER: Gemini-API " + res.status + " — " + (await res.text()).slice(0, 500)); process.exit(1); }
-const antwort = await res.json();
-const text = (antwort.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+    generationConfig: { temperature: 0.1, maxOutputTokens: 32768 },
+  };
+  if (mitSuche) body.tools = [{ google_search: {} }];
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modell}:generateContent?key=${KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: res.ok ? await res.json() : await res.text() };
+}
+
+let antwort = null, benutzt = "";
+aussen:
+for (const modell of MODELLE) {
+  for (const mitSuche of [true, false]) {
+    console.log(`Versuche ${modell} (Google-Suche: ${mitSuche ? "an" : "aus"}) ...`);
+    const r = await frage(modell, mitSuche);
+    if (r.status === 200) { antwort = r.body; benutzt = modell + (mitSuche ? "+suche" : ""); break aussen; }
+    const fehlerText = String(r.body).slice(0, 600);
+    console.error(`  -> HTTP ${r.status}: ${fehlerText}`);
+    if (r.status === 404) break;                       // Modellname unbekannt -> nächstes Modell
+    if (r.status === 429) { console.error("Rate-Limit/Kontingent erschöpft — später erneut ausführen."); process.exit(1); }
+    if (r.status === 400 && /search|tool|grounding/i.test(fehlerText) && mitSuche) continue; // ohne Suche probieren
+    if (r.status === 403) { console.error("Key ungültig oder API nicht freigeschaltet — Key in aistudio.google.com prüfen."); process.exit(1); }
+    break; // anderer 4xx/5xx-Fehler: nächstes Modell versuchen
+  }
+}
+if (!antwort) { console.error("FEHLER: Kein Modell hat geantwortet — Log oben zeigt die HTTP-Fehler."); process.exit(1); }
+console.log("Antwort von: " + benutzt);
+
+const kandidat = antwort.candidates && antwort.candidates[0];
+const text = ((kandidat && kandidat.content && kandidat.content.parts) || []).map(p => p.text || "").join("");
 const start = text.indexOf("{"), ende = text.lastIndexOf("}");
-if (start < 0 || ende <= start) { console.error("FEHLER: Keine JSON in der Antwort."); process.exit(1); }
+if (start < 0 || ende <= start) {
+  console.error("FEHLER: Keine JSON in der Antwort. Diagnose:");
+  console.error("  finishReason: " + (kandidat && kandidat.finishReason));
+  console.error("  Antwort-Auszug: " + JSON.stringify(antwort).slice(0, 800));
+  process.exit(1);
+}
 
 let neu;
 try { neu = JSON.parse(text.slice(start, ende + 1)); }
