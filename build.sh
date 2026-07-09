@@ -34,5 +34,8 @@ cd "$(dirname "$0")"
   cat src/app.js
   echo '</script>'
 } > app-artifact.html
+# Offline-Modus: Service Worker mit Build-Stempel + Web-App-Manifest
+sed "s/__BUILD__/$(date +%Y%m%d%H%M%S)/" src/sw.js > sw.js
+cp src/manifest.json manifest.json
 node gen-tarife.js
-echo "OK: $(wc -c < index.html) Bytes index.html, $(wc -c < app-artifact.html) Bytes app-artifact.html"
+echo "OK: $(wc -c < index.html) Bytes index.html, $(wc -c < app-artifact.html) Bytes app-artifact.html, sw.js + manifest.json erzeugt"

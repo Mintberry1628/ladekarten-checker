@@ -19,7 +19,7 @@ keine Datenbank. Deine Daten bleiben lokal im Browser (localStorage).
 | **Windows-PC** | `index.html` doppelklicken — fertig |
 | **Android** | Seite in Chrome öffnen → Menü ⋮ → „Zum Startbildschirm hinzufügen“ |
 | **iPhone (optional)** | Seite in Safari öffnen → Teilen → „Zum Home-Bildschirm“ |
-| **Raspberry Pi 5 (Home Assistant), empfohlen** | `index.html` **und** `tarife.json` nach `/config/www/ladekarten/` kopieren (per *File editor*- oder *Samba*-Add-on). Lokal: `http://homeassistant.local:8123/local/ladekarten/index.html` — von unterwegs: **https://mintberry.org/local/ladekarten/index.html**. Über HTTPS funktionieren auch **Standort-Ortung** und der **Teilen-Knopf** (→ Hello smart / Google Maps). |
+| **Raspberry Pi 5 (Home Assistant), empfohlen** | `index.html`, `sw.js` und `manifest.json` nach `/config/www/ladekarten/` kopieren (per *File editor*- oder *Samba*-Add-on). Lokal: `http://homeassistant.local:8123/local/ladekarten/index.html` — von unterwegs: **https://mintberry.org/local/ladekarten/index.html**. Über HTTPS funktionieren auch **Standort-Ortung**, **Teilen** (→ Hello smart / Google Maps) und der **Offline-Modus** (App startet ohne Netz — wichtig für Bosnien). |
 
 **Daten zwischen Geräten übertragen:** Start → „Daten exportieren“ → auf dem anderen Gerät importieren.
 

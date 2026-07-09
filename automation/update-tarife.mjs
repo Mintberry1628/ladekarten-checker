@@ -47,7 +47,13 @@ Regeln:
    "entfernt" (Array auf oberster Ebene) auflisten.
 5. Setze "preisstand" auf "${heute}".
 6. Aktualisiere "hinweis"-Texte, wenn sich Bedingungen geändert haben (kurz, deutsch).
-7. Antworte AUSSCHLIESSLICH mit der JSON — kein Text davor oder danach.
+7. NEU: Feld "aktionen" (Array, oberste Ebene): aktuell laufende, BELEGTE Rabatt-Aktionen
+   mit Enddatum, z. B. [{"anbieter":"Lidl","text":"DC für 0,27 €/kWh im Juni","bis":"2026-06-30"}].
+   Nur Aktionen, die HEUTE noch laufen; sonst leeres Array.
+8. NEU: Feld "aenderungen" (Array, oberste Ebene): jede Preis-/Konditionsänderung als
+   {"id":"tarif-id","was":"DC-Preis","alt":0.53,"neu":0.55,"quelle":"https://…"} —
+   mit der Quellen-URL aus deiner Suche. Keine Änderungen = leeres Array.
+9. Antworte AUSSCHLIESSLICH mit der JSON — kein Text davor oder danach.
 
 Aktuelle Datenbank:
 ${JSON.stringify(alt)}`;
@@ -127,6 +133,9 @@ for (const t of neu.tarife || []) {
       fehler.push(`${t.id}: Preissprung ${altMin} → ${neuMin} €/kWh (> 0,30) — bitte manuell prüfen`);
     }
   }
+}
+for (const a of neu.aktionen || []) {
+  if (!a.text || !/^\d{4}-\d{2}-\d{2}$/.test(a.bis || "")) fehler.push("Aktion ohne Text/gültiges bis-Datum: " + JSON.stringify(a).slice(0, 80));
 }
 if (fehler.length) {
   console.error("VALIDIERUNG FEHLGESCHLAGEN — tarife.json bleibt unverändert:");

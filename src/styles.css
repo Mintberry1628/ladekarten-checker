@@ -304,6 +304,11 @@ summary::marker { color: var(--muted); }
 
 /* ---------- Sonstiges ---------- */
 .divider { border: 0; border-top: 1px solid var(--hairline); margin: 14px 0; }
+pre {
+  background: var(--card2); border-radius: 8px; padding: 10px 12px;
+  font-size: .78rem; overflow-x: auto; line-height: 1.45;
+}
+code { background: var(--card2); border-radius: 4px; padding: 1px 5px; font-size: .85em; }
 .muted { color: var(--muted); }
 .right { text-align: right; }
 .nowrap { white-space: nowrap; }

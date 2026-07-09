@@ -1,0 +1,27 @@
+name: CI (Syntax + Datenprüfung)
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: JavaScript-Syntax prüfen
+        run: |
+          node --check src/app.js
+          node --check src/data.js
+          node --check src/sw.js
+          node --check gen-tarife.js
+          node --check automation/update-tarife.mjs
+          node --check automation/pruefe-tarife.mjs
+      - name: tarife.json validieren
+        run: node automation/pruefe-tarife.mjs tarife.json
+      - name: Build durchspielen
+        run: sh build.sh

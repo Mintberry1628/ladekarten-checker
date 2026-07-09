@@ -42,7 +42,7 @@ const NETZE = [
   { id: "ewego",   name: "EWE Go",                kurz: "EWE Go",    typ: "AC+DC", info: "Eigene Säulen v. a. im Nordwesten (auch NRW) + großes Roaming." },
   { id: "dc-fremd", name: "Sonstiger Schnelllader", kurz: "Andere DC", typ: "DC",  info: "Allego, E.ON, Pfalzwerke & Co. — läuft über Roaming-Preise." },
   { id: "ac-fremd", name: "Sonstige AC-Säule",    kurz: "Andere AC", typ: "AC",    info: "Beliebige fremde AC-Säule — läuft über Roaming-Preise." },
-  { id: "schuko",  name: "Steckdose / NRGkick",   kurz: "Steckdose", typ: "AC",    info: "Haushalts- oder CEE-Steckdose (Familie, Hotel) mit deinem NRGkick." },
+  { id: "schuko",  name: "Steckdose / Notladegerät", kurz: "Steckdose", typ: "AC",  info: "Haushalts-Steckdose (Familie, Hotel) mit deinem Schuko-Ladegerät (Mode 2)." },
 ];
 
 /* ---------- Tarife / Ladekarten ----------
@@ -53,40 +53,49 @@ const NETZE = [
 const TARIFE_DEFAULT = [
   {
     id: "maingau", name: "Maingau EinfachStromLaden", kategorie: "frei",
+    einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "EU-weit (inkl. AT/SI/HR)",
     preise: { ionity: { dc: 0.62 } },
     roaming: { ac: 0.52, dc: 0.62 },
     blockier: "Standzeitgebühr 10 ct/min (AC nach 4 h, DC nach 1 h), gedeckelt bei 12 €/Ladevorgang.",
+    blockierAbMin: { ac: 240, dc: 60 },
     hinweis: "Seit 1.7.2026 gestaffelte Preise je Säule: Niedrig 0,52 (AC) / 0,62 (DC) — Standard 0,72 — Hoch 0,82. Preis vor dem Laden in der App prüfen! Ionity bleibt in der Niedrigpreis-Stufe (0,62). Maingau-Energiekunden zahlen je 10 ct weniger.",
     basisEmpfehlung: true,
   },
   {
     id: "enbw-s", name: "EnBW mobility+ S", kategorie: "frei",
+    einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €",
     grund: 0, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.51, dc: 0.51 }, ionity: { dc: 0.89, unsicher: true } },
     roaming: { ac: 0.69, dc: 0.69 },
     blockier: "Blockiergebühr nach 4 h Standzeit.",
+    blockierAbMin: { ac: 240, dc: 240 },
     hinweis: "Sommeraktion Juli–Sept. 2026: 0,51 statt 0,56 an EnBW-Säulen. Roaming im HyperNetz 0,56–0,89 je Betreiber (hier mit 0,69 gerechnet — in der App je Säule prüfen).",
     basisEmpfehlung: true,
   },
   {
     id: "enbw-m", name: "EnBW mobility+ M", kategorie: "abo",
+    einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €", bindung: "monatlich kündbar",
     grund: 5.99, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.41, dc: 0.41 }, ionity: { dc: 0.79, unsicher: true } },
     roaming: { ac: 0.60, dc: 0.60 }, roamingUnsicher: true,
     blockier: "Blockiergebühr nach 4 h Standzeit.",
+    blockierAbMin: { ac: 240, dc: 240 },
     hinweis: "Sommeraktion Juli–Sept. 2026: 0,41 statt 0,46 an EnBW-Säulen. Monatlich kündbar. Roaming-Preise je Betreiber in der App prüfen.",
   },
   {
     id: "enbw-l", name: "EnBW mobility+ L", kategorie: "abo",
+    einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €", bindung: "monatlich kündbar",
     grund: 11.99, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.34, dc: 0.34 }, ionity: { dc: 0.79, unsicher: true } },
     roaming: { ac: 0.55, dc: 0.55 }, roamingUnsicher: true,
     blockier: "Blockiergebühr nach 4 h Standzeit.",
+    blockierAbMin: { ac: 240, dc: 240 },
     hinweis: "Sommeraktion: 0,34 statt 0,39 an EnBW-Säulen (EnBW-Strom-/Gaskunden sogar 0,30). Monatlich kündbar.",
   },
   {
     id: "swm-flex", name: "SWM Ladekarte Flex", kategorie: "frei",
+    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)",
     grund: 0, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.49, dc: 0.69 } },
     roaming: null,
@@ -96,6 +105,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "swm-komfort", name: "SWM Ladekarte Komfort", kategorie: "abo",
+    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)", bindung: "monatlich kündbar",
     grund: 4.95, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.44, dc: 0.64 } },
     roaming: null,
@@ -103,6 +113,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "swm-pro", name: "SWM Ladekarte Pro", kategorie: "abo",
+    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)", bindung: "monatlich kündbar",
     grund: 14.95, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.42, dc: 0.54 } },
     roaming: null,
@@ -118,6 +129,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "aral-extra", name: "Aral pulse Extra", kategorie: "abo",
+    bindung: "monatlich kündbar",
     grund: 2.99, medium: "nur App", laender: "DE",
     preise: { aral: { ac: 0.41, dc: 0.54 } },
     roaming: null,
@@ -125,6 +137,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "adac-echarge", name: "ADAC e-Charge (Aral pulse)", kategorie: "frei",
+    einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "DE + Roaming",
     voraussetzung: "ADAC-Mitgliedschaft erforderlich",
     preise: { aral: { ac: 0.55, dc: 0.55 } },
@@ -133,6 +146,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ionity-motion", name: "Ionity Motion", kategorie: "abo",
+    bindung: "monatlich kündbar (Jahresvariante: 12 Monate)",
     grund: 5.99, jahresAlternative: "59,99 €/Jahr (Motion 365)", medium: "nur App", laender: "Europaweit an Ionity",
     preise: { ionity: { dc: 0.53 } },
     roaming: null,
@@ -140,6 +154,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ionity-power", name: "Ionity Power", kategorie: "abo",
+    bindung: "monatlich kündbar",
     grund: 11.99, medium: "nur App", laender: "Europaweit an Ionity",
     preise: { ionity: { dc: 0.44, unsicher: true } },
     roaming: null,
@@ -162,6 +177,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "tesla-abo", name: "Tesla Supercharger-Mitgliedschaft", kategorie: "abo",
+    bindung: "monatlich kündbar",
     grund: 9.99, jahresAlternative: "100 €/Jahr", medium: "nur App", laender: "Europaweit an Superchargern",
     preise: { tesla: { dc: 0.47, unsicher: true } },
     roaming: null,
@@ -169,10 +185,12 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ewego", name: "EWE Go", kategorie: "frei",
+    einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "DE + Roaming",
     preise: { ewego: { ac: 0.52, dc: 0.52 } },
     roaming: { ac: 0.62, dc: 0.62 },
     blockier: "Keine Blockiergebühr!",
+    blockierAbMin: { ac: null, dc: null },
     hinweis: "Transparent und ohne jede Zusatzgebühr. Interessant Richtung NRW (Oberhausen!) und als Backup: 0,62 überall im Roaming.",
   },
   {
@@ -192,6 +210,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "electroverse", name: "Octopus Electroverse", kategorie: "frei",
+    einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "EU-weit, sehr großes Roaming",
     preise: {}, roaming: { ac: null, dc: null }, preisVariabel: true,
     hinweis: "Kostenlose Allrounder-Karte, Preis je Säule (in der App sichtbar). Bester Plan B im Ausland (SI/HR), wenn die Haupt-App streikt — kostet nichts im Stand-by.",
@@ -212,39 +231,18 @@ const TARIFE_DEFAULT = [
   },
 ];
 
-/* ---------- Orte (Voreinstellung für Nino) ---------- */
+/* ---------- Orte: leere Vorlagen — DU trägst deine Orte selbst ein ---------- */
 const ORTE_DEFAULT = [
-  { id: "heim-ac",  name: "Zuhause München — AC ums Eck", netz: "swm", art: "ac", kwhMonat: 80,
-    notiz: "Kein eigener Stellplatz: SWM-/Qwello-Säulen in der Nähe. Über Nacht ist AC entspannter & günstiger als DC." },
-  { id: "heim-dc",  name: "Zuhause München — Schnelllader", netz: "enbw", art: "dc", kwhMonat: 50,
-    notiz: "EnBW-Hub oder Aral pulse für den schnellen Wochen-Ladestopp (20–30 min)." },
-  { id: "einkauf",  name: "Einkaufen (Lidl/Kaufland)", netz: "lidl", art: "dc", kwhMonat: 40,
-    notiz: "Laden während des Wocheneinkaufs — meist der günstigste DC-Strom überhaupt." },
-  { id: "arbeit",   name: "Arbeit", netz: "ac-fremd", art: "ac", kwhMonat: 0,
-    notiz: "Kein Laden möglich. Falls sich das ändert: kWh hier eintragen." },
-  { id: "eltern",   name: "Eltern", netz: "schuko", art: "ac", kwhMonat: 30,
-    notiz: "NRGkick an Steckdose/CEE — bei längeren Besuchen füllt sich der Akku nebenbei." },
+  { id: "heim-ac",  name: "Zuhause — Säule in der Nähe", netz: "swm", art: "ac", kwhMonat: 0,
+    notiz: "Vorlage: Netz auswählen und deine geplanten kWh/Monat eintragen — erst dann rechnet die App damit." },
+  { id: "heim-dc",  name: "Schnelllader in der Nähe", netz: "enbw", art: "dc", kwhMonat: 0,
+    notiz: "Vorlage: für den schnellen Wochen-Ladestopp (20–30 min)." },
+  { id: "einkauf",  name: "Einkaufen", netz: "lidl", art: "dc", kwhMonat: 0,
+    notiz: "Vorlage: Laden während des Einkaufs — oft der günstigste DC-Strom." },
 ];
 
-/* ---------- Reiseziele (Voreinstellung) ---------- */
-const TRIPS_DEFAULT = [
-  {
-    id: "fojnica", ziel: "Fojnica (Bosnien)", hinKm: 920,
-    laender: ["DE", "AT", "SI", "HR", "BA"],
-    tageVorOrt: 14, kmVorOrt: 300, datum: "",
-    zielLaden: "schuko",
-    // Streckenanteile fürs DC-Laden (BA zählt zu HR: letzter Ladestopp vor der Grenze)
-    anteile: { DE: 0.32, AT: 0.20, SI: 0.15, HR: 0.33 },
-    routeNotiz: "München → Salzburg → Villach → Ljubljana → Zagreb → Banja Luka → Fojnica. Distanz bitte einmal mit deinem Navi abgleichen.",
-  },
-  {
-    id: "oberhausen", ziel: "Oberhausen (NRW)", hinKm: 615,
-    laender: ["DE"],
-    tageVorOrt: 3, kmVorOrt: 100, datum: "",
-    zielLaden: "ewego",
-    routeNotiz: "München → Nürnberg → Würzburg → Frankfurt → Köln → Oberhausen (A9/A3). Ionity + EnBW liegen direkt an der Strecke; vor Ort ist EWE Go in NRW gut vertreten.",
-  },
-];
+/* ---------- Reiseziele: KEINE Vorgaben — Trips entstehen über den Routen-Planer ---------- */
+const TRIPS_DEFAULT = [];
 
 /* ---------- Ladekurve smart #5 Brabus (Näherung) ----------
    [vonSoC, bisSoC, mittlere Ladeleistung kW] — kalibriert auf 10→80 % ≈ 18 min.
@@ -323,7 +321,7 @@ const LAENDER = {
   BA: {
     name: "Bosnien-Herzegowina", flagge: "BA",
     laden: "SEHR dünnes Ladenetz! Letzte verlässliche Schnelllader in Kroatien nutzen und mit vollem Akku über die Grenze. Vor der Reise Säulen auf PlugShare recherchieren und Screenshots offline speichern.",
-    planB: "Dein NRGkick an Schuko/CEE (Unterkunft, Familie, Werkstätten) ist in BiH deine wichtigste Energiequelle. Über Nacht an 230 V ≈ +25–35 km Reichweite pro Stunde Fahrt… pro ~10 h Laden ≈ 100–130 km.",
+    planB: "Dein Schuko-Ladegerät (Unterkunft, Familie) ist in BiH deine wichtigste Energiequelle. An 230 V lädt es ~2,3 kW: über Nacht (~10 h) ≈ 100–110 km Reichweite.",
     extras: [
       "Grüne Versicherungskarte PHYSISCH mitführen (BiH ist nicht EU) — rechtzeitig bei der Kfz-Versicherung anfordern und prüfen, dass BiH nicht ausgeschlossen ist!",
       "Kein EU-Datenroaming in BiH: vorab eSIM/Datenpaket buchen, sonst bist du an der Säule offline.",
@@ -344,7 +342,7 @@ const WISSEN = [
         <li><b>Orte:</b> Wo du regelmäßig lädst und wie viel (kWh/Monat). Jede Änderung rechnet sofort alles neu.</li>
         <li><b>Tarife:</b> Alle Karten & Abos mit Preisen (editierbar). Markiere mit „Hab ich“, was du besitzt. Der Chart zeigt, ab wie viel kWh/Monat sich ein Abo lohnt.</li>
         <li><b>Trips:</b> Oben Start + Ziel eingeben → die App plant die echte Route, setzt Ladestopps passend zu deinem #5 und empfiehlt die günstigste Karten-Kombi für genau diese Fahrt (inkl. „1 Monat Abo, dann kündigen“). Jeder Stopp lässt sich per Teilen ans Auto-Navi schicken. Dazu: Vorbereitungs-Checkliste mit Terminen.</li>
-        <li><b>Fahren:</b> Für unterwegs. Oben: „Wie weit komme ich?“ (Akku-% oder Rest-km + dein Tempo). Mitte: Säulen in der Nähe finden → Maps/Teilen. Unten: „Ich stehe an Säule X — welche Karte nehme ich?“ mit Ausfallkette.</li>
+        <li><b>Fahren:</b> Für unterwegs. Oben: „Wie weit komme ich?“ (Akku-% oder Rest-km + dein Tempo). Mitte: Säulen in der Nähe finden → Maps/Teilen. Dann: „Ich stehe an Säule X — welche Karte nehme ich?“ mit Ausfallkette, Blockiergebühr-Timer und Lade-Logbuch (macht die App mit jeder Ladung präziser).</li>
         <li><b>Wissen:</b> Du bist hier. Kabel-Checkliste, erste Ladung, Plan B, Winter u. v. m.</li>
       </ul>
       <p><b>Typischer Ablauf vor einer großen Fahrt:</b> Trips → Route planen → empfohlene Karte/Abo einrichten (To-do auf Start) → Checkliste abhaken → losfahren → im Fahrmodus Stopps ans Navi teilen.</p>`
@@ -354,8 +352,8 @@ const WISSEN = [
     html: `
       <ul class="dots">
         <li><b>Typ-2-Ladekabel (Mode 3), 3-phasig 32 A / 22 kW:</b> Pflicht! Die meisten AC-Säulen haben <b>kein</b> festes Kabel. Dein #5 lädt AC mit vollen 22 kW — also kein dünneres 11-kW-Kabel kaufen. Prüfe, ob eins beim Auto dabei ist.</li>
-        <li><b>NRGkick (hast du):</b> deine Geheimwaffe. Dazu gehören die Adapter: <b>Schuko</b>, <b>CEE blau 16 A</b> (Camping), <b>CEE rot 16 A und 32 A</b> (Kraftstrom, lädt bis 11/22 kW). Für Bosnien unbezahlbar.</li>
-        <li><b>Regel für fremde Schuko-Steckdosen:</b> auf max. 10 A drosseln, Stecker nach 30 min auf Wärme prüfen. Alte Leitungen (Altbau, Bosnien) sind der häufigste Brandherd.</li>
+        <li><b>Schuko-Notladegerät (Mode 2):</b> dein Plan B an jeder Haushaltssteckdose (Eltern, Hotel, Bosnien). Beim Kauf achten auf: <b>einstellbaren Ladestrom (6–10 A)</b> und <b>Temperaturfühler im Stecker</b> — z. B. die einfachen Marken-Ladeziegel ab ~150 €. Lädt ~2,3 kW ≈ 12 km pro Stunde, über Nacht ~100 km.</li>
+        <li><b>Regel für fremde Schuko-Steckdosen:</b> auf max. 10 A stellen (im Zweifel 6–8 A), Stecker nach 30 min auf Wärme prüfen. Alte Leitungen (Altbau, Bosnien) sind der häufigste Brandherd.</li>
         <li><b>Verlängerung (falls nötig):</b> nur schwere Gummileitung ≥ 2,5 mm², Trommel IMMER voll abrollen.</li>
         <li><b>DC/CCS:</b> Kabel hängt immer fest an der Säule — dafür brauchst du nichts.</li>
         <li><b>Kleinkram:</b> Arbeitshandschuhe (dreckige Kabel), Taschenlampe, Kartenetui für Ladekarten in der Mittelkonsole.</li>
@@ -437,6 +435,30 @@ const WISSEN = [
       <p><b>A Better Routeplanner (ABRP)</b> ist der Spezialist für Live-Langstrecken-Routing: Höhenprofil, Wetter, Verkehr, Ladekurven, Belegung der Säulen in Echtzeit, optional Live-SoC per OBD-Dongle. Das ist mit Karten- und Wetterdiensten verbunden und als Offline-Eigenbau nicht sinnvoll nachbaubar.</p>
       <p><b>Was diese App davon übernommen hat:</b> das Verbrauchsmodell nach Tempo, die Ladekurve deines #5 (10→80 % ≈ 18 min), Etappen-/Stopp-Planung und das Reichweiten-Cockpit („Schaffe ich es bis Säule X?“).</p>
       <p><b>Empfohlene Kombi auf großer Fahrt:</b> ABRP (oder das Auto-Navi) führt dich zur Säule — diese App sagt dir, <b>mit welcher Karte du dort am günstigsten lädst</b>, was ABRP nicht gut kann. Fürs Fahrzeugprofil in ABRP: smart #5 Brabus auswählen, max. Ladeziel 80 %.</p>`
+  },
+  {
+    id: "sichern", titel: "Profil-Sicherung auf dem Pi (mehrere Nutzer)",
+    html: `
+      <p>Jedes Gerät hat seinen <b>eigenen</b> Speicherstand — du, dein Schwager auf dem iPhone, jeder für sich. Zusätzlich kann jeder sein Profil unter eigenem Namen auf deinem Home Assistant sichern und auf einem neuen Gerät wieder laden (Start → „Daten &amp; Updates“ → Profilname + ☁-Knöpfe).</p>
+      <p><b>Einmalige Einrichtung in Home Assistant</b> — in die <code>configuration.yaml</code> (File editor) einfügen, dann HA neu starten:</p>
+      <pre>shell_command:
+  lkc_profil_speichern: >-
+    mkdir -p /config/www/ladekarten &&
+    echo {{ b64 }} | base64 -d >
+    /config/www/ladekarten/profil-{{ profil }}.json
+
+automation lkc:
+  - alias: "Ladekarten-Profil sichern"
+    trigger:
+      - platform: webhook
+        webhook_id: lkc-profil-sichern
+        local_only: false
+    action:
+      - service: shell_command.lkc_profil_speichern
+        data:
+          profil: "{{ trigger.json.profil | regex_replace('[^a-z0-9-]','') }}"
+          b64: "{{ trigger.json.b64 | regex_replace('[^A-Za-z0-9+/=]','') }}"</pre>
+      <p class="small">Tipp: Die <code>webhook_id</code> kannst du in einen eigenen Geheimnamen ändern — dann in der App unter dem Profilnamen-Feld dieselbe ID eintragen.</p>`
   },
   {
     id: "preise", titel: "Preise: aktualisieren sich von selbst",
