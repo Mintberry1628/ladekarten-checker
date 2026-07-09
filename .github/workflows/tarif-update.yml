@@ -1,8 +1,8 @@
-name: Tarif-Update (monatlich, automatisch)
+name: Tarif-Update (wöchentlich, automatisch)
 
 on:
   schedule:
-    - cron: "0 6 2 * *"   # am 2. jeden Monats, 06:00 UTC
+    - cron: "0 5 * * 1"   # jeden Montag, 05:00 UTC (~06/07 Uhr deutscher Zeit)
   workflow_dispatch: {}    # zusätzlich manuell startbar (Actions-Tab -> Run workflow)
 
 permissions:

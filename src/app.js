@@ -591,7 +591,9 @@ async function routePlanen() {
 
 /* ---------- Tarif-Updates (tarife.json neben der App) ---------- */
 let updateInfo = null;
-async function checkTarifUpdate() {
+let updateCheck = "";   // "" | "läuft" | "aktuell" (für den manuellen Update-Knopf)
+async function checkTarifUpdate(manuell) {
+  if (manuell) { updateCheck = "läuft"; render(); }
   // Alle bekannten Quellen abfragen und den NEUESTEN Preisstand übernehmen:
   // tarife.json neben der App, die eingestellte Update-URL und die
   // fest hinterlegten Quellen (z. B. GitHub, automatisch monatlich aktualisiert).
@@ -615,7 +617,11 @@ async function checkTarifUpdate() {
     // auf der Startseite erscheint nur noch eine Erfolgsnotiz.
     updateInfo = bestes;
     updateHinweis = bestes.preisstand;
+    updateCheck = "";
     applyTarifUpdate();
+  } else if (manuell) {
+    updateCheck = "aktuell";
+    render();
   }
 }
 let updateHinweis = null;
@@ -826,8 +832,16 @@ function viewStart() {
       <div class="btnrow"><button class="btn small primary" data-tab="trips">Zum Trip-Planer</button></div></div>`;
   }
 
-  html += `<div class="card flat"><h2>Daten</h2>
-    <p class="small">Alles liegt nur lokal auf diesem Gerät. Für dein zweites Gerät (PC ↔ Handy): exportieren &amp; dort importieren.</p>
+  html += `<div class="card flat"><h2>Daten &amp; Updates</h2>
+    <p class="small">🔄 <b>Tarife aktualisieren sich von selbst:</b> Die Cloud recherchiert <b>jeden Montag</b> alle Preise neu, und die App übernimmt neue Stände bei jedem Öffnen automatisch (aktueller Stand: <b>${datumDE(state.settings.preiseGeprueft)}</b>). Mit dem Knopf kannst du jederzeit sofort nachsehen.</p>
+    <div class="btnrow">
+      <button class="btn small primary" data-action="update-check">🔄 Jetzt nach Tarif-Updates suchen</button>
+      ${updateCheck === "läuft" ? '<span class="pill">⏳ prüfe Quellen …</span>' : ""}
+      ${updateCheck === "aktuell" ? '<span class="pill good">✓ Alles aktuell</span>' : ""}
+    </div>
+    <p class="small muted">Komplette Neu-Recherche sofort anstoßen (statt auf Montag zu warten): <a href="https://github.com/Mintberry1628/ladekarten-checker/actions" target="_blank" rel="noopener">GitHub → Actions → Run workflow</a> — 2 Minuten später hier auf den Knopf drücken.</p>
+    <hr class="divider">
+    <p class="small">Deine Eingaben liegen nur lokal auf diesem Gerät. Für dein zweites Gerät (PC ↔ Handy): exportieren &amp; dort importieren.</p>
     <div class="btnrow">
       <button class="btn small" data-action="export">⬇ Daten exportieren</button>
       <button class="btn small" data-action="import">⬆ Daten importieren</button>
@@ -1282,6 +1296,7 @@ document.addEventListener("click", (e) => {
     }
   }
   if (act === "update-anwenden") { applyTarifUpdate(); return; }
+  if (act === "update-check") { checkTarifUpdate(true); return; }
   if (act === "tarife-json") {
     const blob = new Blob([JSON.stringify({ preisstand: state.settings.preiseGeprueft, tarife: state.tarife }, null, 1)], { type: "application/json" });
     const a = document.createElement("a");

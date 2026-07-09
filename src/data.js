@@ -439,9 +439,10 @@ const WISSEN = [
       <p><b>Empfohlene Kombi auf großer Fahrt:</b> ABRP (oder das Auto-Navi) führt dich zur Säule — diese App sagt dir, <b>mit welcher Karte du dort am günstigsten lädst</b>, was ABRP nicht gut kann. Fürs Fahrzeugprofil in ABRP: smart #5 Brabus auswählen, max. Ladeziel 80 %.</p>`
   },
   {
-    id: "preise", titel: "Preise pflegen",
+    id: "preise", titel: "Preise: aktualisieren sich von selbst",
     html: `
-      <p>Ladepreise ändern sich alle paar Monate (zuletzt: Maingau-Staffelung, SWM-Reform und Ionity-Erhöhung zum 1.7.2026, EnBW-Sommeraktion). Alle Preise dieser App sind unter <b>Tarife</b> editierbar. Die App erinnert dich, wenn der Preisstand älter als 60 Tage ist.</p>
-      <p>Schnell-Check: EnBW-App (zeigt Preise aller Säulen), ladetarif-vergleich.herrmittmann.de.</p>`
+      <p><b>Du musst hier nichts tun:</b> Jeden <b>Montag</b> recherchiert ein Cloud-Dienst (GitHub + Gemini) automatisch alle Tarife neu, prüft sie auf Plausibilität und stellt sie bereit — die App übernimmt neue Stände bei jedem Öffnen von selbst. Auf der <b>Start</b>-Seite kannst du zusätzlich jederzeit per Knopf „Jetzt nach Tarif-Updates suchen“ sofort prüfen.</p>
+      <p>Deine eigenen Preis-Änderungen (unter <b>Tarife → Preise ändern</b>) sind geschützt und werden nie automatisch überschrieben. Als doppeltes Netz warnt die App, falls der Preisstand je älter als 60 Tage würde (z. B. wenn der Cloud-Dienst länger ausfällt — dann bekommst du auch eine E-Mail von GitHub).</p>
+      <p>Schnell-Check vor Ort: EnBW-App (zeigt Preise aller Säulen), Ladefuchs, chargeprice.app.</p>`
   },
 ];
