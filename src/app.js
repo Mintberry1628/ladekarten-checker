@@ -611,9 +611,14 @@ async function checkTarifUpdate() {
     } catch (e) { /* Quelle nicht erreichbar — nächste probieren */ }
   }
   if (bestes && bestes.preisstand > state.settings.preiseGeprueft) {
-    updateInfo = bestes; render();
+    // Vollautomatisch übernehmen (eigene Preis-Änderungen bleiben geschützt),
+    // auf der Startseite erscheint nur noch eine Erfolgsnotiz.
+    updateInfo = bestes;
+    updateHinweis = bestes.preisstand;
+    applyTarifUpdate();
   }
 }
+let updateHinweis = null;
 function applyTarifUpdate() {
   if (!updateInfo) return;
   for (const neu of updateInfo.tarife) {
@@ -755,11 +760,10 @@ function viewStart() {
       <div class="btnrow"><button class="btn small" data-action="intro-weg">Verstanden, ausblenden</button></div></div>`;
   }
 
-  // Tarif-Update vom eigenen Server verfügbar?
-  if (updateInfo) {
-    html += `<div class="card alert good"><h3>⬇️ Neue Tarifdaten verfügbar (Stand ${datumDE(updateInfo.preisstand)})</h3>
-      <p>Auf deinem Server liegt eine neuere <code>tarife.json</code>. Von dir selbst geänderte Tarife werden nicht überschrieben.</p>
-      <div class="btnrow"><button class="btn small primary" data-action="update-anwenden">Jetzt übernehmen</button></div></div>`;
+  // Tarif-Update wurde beim Start automatisch übernommen
+  if (updateHinweis) {
+    html += `<div class="card alert good"><h3>✓ Tarifdaten automatisch aktualisiert</h3>
+      <p>Neuer Preisstand ${datumDE(updateHinweis)} wurde geladen und übernommen. Von dir selbst geänderte Tarife blieben unangetastet — nichts weiter zu tun.</p></div>`;
   }
 
   // Preis-Stand-Warnung
