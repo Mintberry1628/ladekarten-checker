@@ -77,6 +77,9 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* Kein (versehentliches) Zoomen: Doppeltipp-/Pinch-Zoom aus, Scrollen bleibt */
+html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
+button, .btn, select, input, summary { touch-action: manipulation; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -244,7 +247,7 @@ ul.dots li { margin: .3em 0; }
 /* ---------- Tarif-Karten ---------- */
 .tarif { position: relative; }
 .tarif .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.tarif .preis-haupt { margin-left: auto; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tarif .preis-haupt { margin-left: auto; padding-left: 14px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tarif .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 details { border-top: 1px solid var(--hairline); margin-top: 10px; padding-top: 8px; }
 details.plain { border: 0; margin: 4px 0 0; padding: 0; }
@@ -274,8 +277,20 @@ summary::marker { color: var(--muted); }
 .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 8px; font-size: .8rem; color: var(--ink2); }
 .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
 
-/* Balkendiagramm (Trip-Kosten) */
+/* Balkendiagramm (Trip-Kosten) — als aufklappbare Empfehlungs-Zeilen */
 .hbars { display: grid; gap: 8px; margin-top: 10px; }
+details.strategie { border: 0; margin: 0; padding: 0; }
+details.strategie > summary { list-style: none; color: inherit; font-weight: inherit; display: block; }
+details.strategie > summary::-webkit-details-marker { display: none; }
+details.strategie > summary .hbar { cursor: pointer; }
+details.strategie > summary:hover .top span:first-child { color: var(--accent); }
+details.strategie[open] > summary .top span:first-child { color: var(--accent); }
+details.strategie .sdetail { padding: 6px 2px 12px; border-bottom: 1px dashed var(--hairline); }
+
+/* Echte Routen-Karte (OSM-Kacheln) */
+.mapwrap { position: relative; overflow: hidden; border-radius: 10px; border: 1px solid var(--hairline); margin-top: 10px; background: var(--card2); }
+.mapcanvas { position: relative; transform-origin: 0 0; }
+.mapattrib { position: absolute; right: 6px; bottom: 4px; background: rgba(255,255,255,.78); color: #333; padding: 0 5px; border-radius: 4px; font-size: 9.5px; }
 .hbar .top { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; margin-bottom: 3px; }
 .hbar .top .val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hbar .track { background: var(--card2); border-radius: 4px; height: 14px; overflow: hidden; }

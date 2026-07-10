@@ -4,7 +4,7 @@
    Grundgebühren in €/Monat. Preise sind in der App editierbar.
    ============================================================ */
 
-const PREISSTAND = "2026-07-07";
+const PREISSTAND = "2026-07-10";
 
 /* OpenChargeMap-API-Key: wird beim Build aus src/ocm-key.local.js eingebacken
    (Datei ist nicht Teil des öffentlichen Repos). Nutzer-Eingabe in den
@@ -39,6 +39,7 @@ const NETZE = [
   { id: "swm",     name: "SWM (Stadtwerke München)", kurz: "SWM",    typ: "AC+DC", info: "Städtische Ladesäulen in München, Ladenetz-Verbund." },
   { id: "qwello",  name: "Qwello (München)",      kurz: "Qwello",    typ: "AC",    info: "AC-Säulen am Straßenrand in München, Start per App." },
   { id: "lidl",    name: "Lidl / Kaufland",       kurz: "Lidl/KL",   typ: "DC",    geschlossen: true, info: "Schnelllader an Filialen — nur zu Öffnungszeiten, Start per Kaufland-App/Lidl Plus, keine Fremdkarten." },
+  { id: "aldi",    name: "Aldi Süd",              kurz: "Aldi",      typ: "AC+DC", geschlossen: true, info: "Lader an Aldi-Süd-Filialen (z. B. München-Großhadern) — nur zu Öffnungszeiten, Start per App/QR oder Girocard direkt an der Säule, keine Fremdkarten." },
   { id: "ewego",   name: "EWE Go",                kurz: "EWE Go",    typ: "AC+DC", info: "Eigene Säulen v. a. im Nordwesten (auch NRW) + großes Roaming." },
   { id: "dc-fremd", name: "Sonstiger Schnelllader", kurz: "Andere DC", typ: "DC",  info: "Allego, E.ON, Pfalzwerke & Co. — läuft über Roaming-Preise." },
   { id: "ac-fremd", name: "Sonstige AC-Säule",    kurz: "Andere AC", typ: "AC",    info: "Beliebige fremde AC-Säule — läuft über Roaming-Preise." },
@@ -53,6 +54,7 @@ const NETZE = [
 const TARIFE_DEFAULT = [
   {
     id: "maingau", name: "Maingau EinfachStromLaden", kategorie: "frei",
+    bestellLink: "https://www.maingau-energie.de/e-mobilitaet",
     einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "EU-weit (inkl. AT/SI/HR)",
     preise: { ionity: { dc: 0.62 } },
@@ -64,6 +66,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "enbw-s", name: "EnBW mobility+ S", kategorie: "frei",
+    bestellLink: "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
     einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €",
     grund: 0, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.51, dc: 0.51 }, ionity: { dc: 0.89, unsicher: true } },
@@ -75,6 +78,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "enbw-m", name: "EnBW mobility+ M", kategorie: "abo",
+    bestellLink: "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
     einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €", bindung: "monatlich kündbar",
     grund: 5.99, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.41, dc: 0.41 }, ionity: { dc: 0.79, unsicher: true } },
@@ -85,6 +89,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "enbw-l", name: "EnBW mobility+ L", kategorie: "abo",
+    bestellLink: "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
     einmalKosten: 9.90, einmalHinweis: "physische Karte 9,90 € — nur App: 0 €", bindung: "monatlich kündbar",
     grund: 11.99, medium: "Karte + App", laender: "DE, AT, CH u. a. (HyperNetz)",
     preise: { enbw: { ac: 0.34, dc: 0.34 }, ionity: { dc: 0.79, unsicher: true } },
@@ -95,7 +100,8 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "swm-flex", name: "SWM Ladekarte Flex", kategorie: "frei",
-    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)",
+    bestellLink: "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+    einmalKosten: 11.90, einmalHinweis: "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)",
     grund: 0, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.49, dc: 0.69 } },
     roaming: null,
@@ -105,7 +111,8 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "swm-komfort", name: "SWM Ladekarte Komfort", kategorie: "abo",
-    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)", bindung: "monatlich kündbar",
+    bestellLink: "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+    einmalKosten: 11.90, einmalHinweis: "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)", bindung: "monatlich kündbar",
     grund: 4.95, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.44, dc: 0.64 } },
     roaming: null,
@@ -113,7 +120,8 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "swm-pro", name: "SWM Ladekarte Pro", kategorie: "abo",
-    einmalKosten: null, einmalHinweis: "Kartengebühr bei Bestellung prüfen (swm.de)", bindung: "monatlich kündbar",
+    bestellLink: "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+    einmalKosten: 11.90, einmalHinweis: "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)", bindung: "monatlich kündbar",
     grund: 14.95, medium: "Karte + App", laender: "DE (Ladenetz-Verbund)",
     preise: { swm: { ac: 0.42, dc: 0.54 } },
     roaming: null,
@@ -121,6 +129,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "aral-klassik", name: "Aral pulse Klassik", kategorie: "frei",
+    bestellLink: "https://www.aral-pulse.de/",
     grund: 0, medium: "nur App", laender: "DE",
     preise: { aral: { ac: 0.47, dc: 0.62 } },
     roaming: null,
@@ -129,6 +138,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "aral-extra", name: "Aral pulse Extra", kategorie: "abo",
+    bestellLink: "https://www.aral-pulse.de/",
     bindung: "monatlich kündbar",
     grund: 2.99, medium: "nur App", laender: "DE",
     preise: { aral: { ac: 0.41, dc: 0.54 } },
@@ -137,6 +147,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "adac-echarge", name: "ADAC e-Charge (Aral pulse)", kategorie: "frei",
+    bestellLink: "https://www.adac.de/services/adac-e-charge/",
     einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "DE + Roaming",
     voraussetzung: "ADAC-Mitgliedschaft erforderlich",
@@ -146,6 +157,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ionity-motion", name: "Ionity Motion", kategorie: "abo",
+    bestellLink: "https://ionity.eu/de/netzwerk-und-preise",
     bindung: "monatlich kündbar (Jahresvariante: 12 Monate)",
     grund: 5.99, jahresAlternative: "59,99 €/Jahr (Motion 365)", medium: "nur App", laender: "Europaweit an Ionity",
     preise: { ionity: { dc: 0.53 } },
@@ -154,6 +166,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ionity-power", name: "Ionity Power", kategorie: "abo",
+    bestellLink: "https://ionity.eu/de/netzwerk-und-preise",
     bindung: "monatlich kündbar",
     grund: 11.99, medium: "nur App", laender: "Europaweit an Ionity",
     preise: { ionity: { dc: 0.44, unsicher: true } },
@@ -162,6 +175,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ionity-go", name: "Ionity Go (App, ohne Abo)", kategorie: "frei",
+    bestellLink: "https://ionity.eu/de/netzwerk-und-preise",
     grund: 0, medium: "nur App", laender: "Europaweit an Ionity",
     preise: { ionity: { dc: 0.66 } },
     roaming: null,
@@ -169,6 +183,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "tesla-app", name: "Tesla-App (ohne Abo)", kategorie: "frei",
+    bestellLink: "https://www.tesla.com/de_de/charging",
     grund: 0, medium: "nur App", laender: "Europaweit an Superchargern",
     preise: { tesla: { dc: 0.61, unsicher: true } },
     roaming: null,
@@ -177,6 +192,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "tesla-abo", name: "Tesla Supercharger-Mitgliedschaft", kategorie: "abo",
+    bestellLink: "https://www.tesla.com/de_de/charging",
     bindung: "monatlich kündbar",
     grund: 9.99, jahresAlternative: "100 €/Jahr", medium: "nur App", laender: "Europaweit an Superchargern",
     preise: { tesla: { dc: 0.47, unsicher: true } },
@@ -185,6 +201,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "ewego", name: "EWE Go", kategorie: "frei",
+    bestellLink: "https://www.ewe-go.de/",
     einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "DE + Roaming",
     preise: { ewego: { ac: 0.52, dc: 0.52 } },
@@ -195,6 +212,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "kaufland-app", name: "Lidl/Kaufland (Kaufland-App)", kategorie: "frei",
+    bestellLink: "https://www.kaufland.de/services/e-laden.html",
     grund: 0, medium: "nur App", laender: "DE (nur eigene Filialen)",
     preise: { lidl: { ac: 0.29, dc: 0.47 } },
     roaming: null,
@@ -202,7 +220,20 @@ const TARIFE_DEFAULT = [
     basisEmpfehlung: true,
   },
   {
+    id: "aldi-app", name: "Aldi Süd (App/Girocard)", kategorie: "frei",
+    bestellLink: "https://www.e-ladestation.aldi-sued.de/",
+    einmalKosten: 0,
+    grund: 0, medium: "nur App", laender: "DE (nur eigene Filialen, Süd-/Westdeutschland)",
+    preise: { aldi: { ac: 0.29, dc: 0.47 } },
+    roaming: null,
+    blockier: "Keine Blockiergebühr — aber Laden nur zu Öffnungszeiten.",
+    blockierAbMin: { ac: null, dc: null },
+    hinweis: "AC 0,29 — DC 0,44 (ab 50 kW) bzw. 0,47 (HPC ab 150 kW). Keine Grundgebühr. ~1.800 Ladepunkte an über 700 Filialen (auch München-Großhadern). Zahlung per QR/App oder Girocard/Kreditkarte direkt an der Säule — geht also sogar ganz ohne Registrierung.",
+    basisEmpfehlung: true,
+  },
+  {
     id: "qwello-app", name: "Qwello (App)", kategorie: "frei",
+    bestellLink: "https://www.qwello.eu/de/",
     grund: 0, medium: "nur App", laender: "DE (München u. a.)",
     preise: { qwello: { ac: 0.55, unsicher: true } },
     roaming: null,
@@ -210,6 +241,7 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "electroverse", name: "Octopus Electroverse", kategorie: "frei",
+    bestellLink: "https://electroverse.octopus.energy/de",
     einmalKosten: 0,
     grund: 0, medium: "Karte + App", laender: "EU-weit, sehr großes Roaming",
     preise: {}, roaming: { ac: null, dc: null }, preisVariabel: true,
@@ -218,6 +250,8 @@ const TARIFE_DEFAULT = [
   },
   {
     id: "smart-charge", name: "smart charge@street (Hello smart)", kategorie: "frei",
+    bestellLink: "https://de.smart.com/",
+    einmalKosten: null, einmalHinweis: "Karte über die Hello-smart-App bestellen — ggf. einmalige Aktivierungsgebühr, wird dort vor der Bestellung angezeigt",
     grund: 0, medium: "Karte + App", laender: "Europaweit (200.000+ Punkte)",
     preise: {}, roaming: { ac: null, dc: null }, preisVariabel: true,
     hinweis: "Der markeneigene Tarif zu deinem #5: Go-Tarif ≈ 5 % Rabatt ggü. Peak, Preis je Säule in der Hello-smart-App. Ionity-Pakete (Flex/Max) zubuchbar — vor Langstrecke Preise mit Ionity Motion vergleichen. Ggf. einmalige Aktivierungsgebühr.",
@@ -265,6 +299,7 @@ const OPERATOR_MAP = [
   { netz: "swm", muster: ["stadtwerke münchen", "stadtwerke muenchen", "swm"] },
   { netz: "qwello", muster: ["qwello"] },
   { netz: "lidl", muster: ["lidl", "kaufland", "schwarz"] },
+  { netz: "aldi", muster: ["aldi"] },
   { netz: "ewego", muster: ["ewe"] },
 ];
 function opZuNetz(opName) {
@@ -278,7 +313,7 @@ function opZuNetz(opName) {
    "EU" = praktisch überall auf der Route außer Bosnien. */
 const NETZ_LAENDER = {
   enbw: ["DE", "AT", "CH"],
-  aral: ["DE"], swm: ["DE"], lidl: ["DE"], ewego: ["DE"], qwello: ["DE"],
+  aral: ["DE"], swm: ["DE"], lidl: ["DE"], aldi: ["DE"], ewego: ["DE"], qwello: ["DE"],
   ionity: "EU",
   tesla: "EU",
 };
@@ -464,6 +499,8 @@ automation lkc:
     id: "preise", titel: "Preise: aktualisieren sich von selbst",
     html: `
       <p><b>Du musst hier nichts tun:</b> Jeden <b>Montag</b> recherchiert ein Cloud-Dienst (GitHub + Gemini) automatisch alle Tarife neu, prüft sie auf Plausibilität und stellt sie bereit — die App übernimmt neue Stände bei jedem Öffnen von selbst. Auf der <b>Start</b>-Seite kannst du zusätzlich jederzeit per Knopf „Jetzt nach Tarif-Updates suchen“ sofort prüfen.</p>
+      <p>Geprüft werden dabei nicht nur die kWh-Preise, sondern auch <b>Kartengebühren</b> (einmalige Kosten), Bindungsfristen, laufende <b>Aktionen</b> und die Bestell-Links zu den Anbietern.</p>
+      <p><b>Deine Eingaben gehen bei Updates nie verloren:</b> Orte, Karten, Trips und Logbuch liegen im Browser-Speicher deines Geräts — eine neue App-Version liest sie einfach weiter. Vor jeder internen Daten-Umstellung legt die App zusätzlich automatisch eine Sicherungskopie an.</p>
       <p>Deine eigenen Preis-Änderungen (unter <b>Tarife → Preise ändern</b>) sind geschützt und werden nie automatisch überschrieben. Als doppeltes Netz warnt die App, falls der Preisstand je älter als 60 Tage würde (z. B. wenn der Cloud-Dienst länger ausfällt — dann bekommst du auch eine E-Mail von GitHub).</p>
       <p>Schnell-Check vor Ort: EnBW-App (zeigt Preise aller Säulen), Ladefuchs, chargeprice.app.</p>`
   },

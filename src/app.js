@@ -3,7 +3,7 @@
    ============================================================ */
 "use strict";
 
-const DATA_VERSION = 6;
+const DATA_VERSION = 7;
 const LS_KEY = "lkc-state-v1";
 
 /* ---------- Hilfen ---------- */
@@ -37,6 +37,7 @@ function defaultState() {
     settings: {
       schukoPreis: 0.38, preiseGeprueft: PREISSTAND, introWeg: false,
       ocmKey: (typeof OCM_KEY_STANDARD !== "undefined" ? OCM_KEY_STANDARD : ""), puffer: 15, nurMeineKarten: false,
+      suchKw: 0,                                        // Säulen-Finder: Wunsch-Mindestleistung (0 = alles)
       ankunftSoc: 20, beladen: true,
       updateUrl: "https://mintberry.org/local/ladekarten/tarife.json",
       profilName: "", webhookId: "lkc-profil-sichern",  // Pi-Sicherung (je Nutzer eigenes Profil)
@@ -65,6 +66,9 @@ function loadState() {
   if (!s || !s.tarife) { state = defaultState(); return; }
   // Neue Standard-Tarife/Felder nach App-Update einpflegen, Nutzer-Edits behalten
   if ((s.version || 0) < DATA_VERSION) {
+    // Sicherheitsnetz: vor jeder Daten-Umstellung bleibt der komplette alte
+    // Stand als Kopie im Browser-Speicher liegen — nichts geht verloren
+    try { localStorage.setItem(LS_KEY + "-sicherung", JSON.stringify(s)); } catch (e) { /* voll */ }
     const alt = s.tarife || [];
     s.tarife = JSON.parse(JSON.stringify(TARIFE_DEFAULT)).map(def => {
       const old = alt.find(t => t.id === def.id);
@@ -199,10 +203,11 @@ function monatsAnalyse() {
 
 // Was kostet die Beschaffung einer Karte einmalig? (Text für Empfehlungen)
 function kartenKostenText(t) {
+  if (t.kategorie === "adhoc") return "keine Karte nötig — Girocard/Kreditkarte an der Säule reicht";
   if ((t.medium || "").includes("nur App")) return "nur App — 0 € Beschaffung";
   if (t.einmalKosten === 0) return "Karte kostenlos" + (t.einmalHinweis ? ` (${t.einmalHinweis})` : "");
   if (t.einmalKosten != null) return `Karte einmalig ${eur(t.einmalKosten)}${t.einmalHinweis ? " — " + t.einmalHinweis : ""}`;
-  return t.einmalHinweis || "Kartengebühr beim Anbieter prüfen";
+  return t.einmalHinweis || "Kartengebühr noch nicht belegt — das wöchentliche Update trägt sie nach, sobald der Anbieter sie ausweist";
 }
 // Läuft für diesen Anbieter gerade eine Aktion? (aus dem wöchentlichen Update)
 function tarifAktion(t) {
@@ -337,6 +342,31 @@ function tripAnalyse(trip) {
     gesamt: (best ? best.kosten : 0) + kostenAbfahrt + kostenVorOrt,
     gesamtKm: 2 * trip.hinKm + (+trip.kmVorOrt || 0),
   };
+}
+
+// Länder-Check einer Karten-Empfehlung: Wo auf der Route gilt sie, wo nicht?
+function laenderCheck(k, trip) {
+  const anteile = trip.anteile || { DE: 1 };
+  const teile = Object.entries(anteile).map(([land, a]) => {
+    const ok = k.tarif.id === "adhoc" || netzDecktLand(k.netz, land);
+    const name = (LAENDER[land] && LAENDER[land].name) || land;
+    return `${name} (${Math.round(a * 100)} % der Strecke) ${ok ? "✓" : "✗"}`;
+  });
+  const fehlt = Object.keys(anteile).some(l => !(k.tarif.id === "adhoc" || netzDecktLand(k.netz, l)));
+  return teile.join(" · ") + (fehlt ? ` — auf den ✗-Abschnitten rechnet die App automatisch mit der günstigsten 0-€-Alternative (${ct(k.lueckePreis)}), das steckt schon im Gesamtpreis.` : "");
+}
+// Mehr-Länder-Fahrten: welche Karte ist in welchem Land am günstigsten?
+function landBesteText(trip, ana) {
+  const anteile = trip.anteile || {};
+  if (Object.keys(anteile).length < 2) return "";
+  const teile = [];
+  for (const land of Object.keys(anteile)) {
+    const kand = ana.kandidaten.filter(k => k.tarif.id === "adhoc" || netzDecktLand(k.netz, land));
+    if (!kand.length) continue;
+    const best = kand.slice().sort((a, b) => a.preis - b.preis)[0];
+    teile.push(`<b>${esc((LAENDER[land] && LAENDER[land].name) || land)}:</b> ${esc(best.label.split(" — ")[0])} (${ct(best.preis)})`);
+  }
+  return teile.length ? `<p class="small">🌍 <b>Pro Land am günstigsten:</b> ${teile.join(" · ")}. Die Gesamt-Empfehlung oben verrechnet das bereits über die Strecken-Anteile — ein Abo empfiehlt sie nur, wenn es unterm Strich günstiger ist als kostenlose Karten + Ad-hoc.</p>` : "";
 }
 
 // Checkliste für einen Trip (mit Terminen, wenn Datum gesetzt)
@@ -523,15 +553,27 @@ async function sucheSaeulen(lat, lng) {
   const key = (state.settings.ocmKey || "").trim();
   if (!key) { sucheStatus = "kein-key"; render(); return; }
   sucheStatus = "lädt"; render();
+  // Wunsch-Leistung: gibt es in der Nähe nichts, weitet die App den Radius
+  // selbst aus (bis 300 km) — du musst nicht suchen
+  const minKw = +state.settings.suchKw || 0;
+  const radien = minKw ? [30, 80, 160, 300] : [30];
   try {
-    const url = "https://api.openchargemap.io/v3/poi/?output=json&distanceunit=km&distance=30&maxresults=25&verbose=false&includecomments=true" +
-      "&latitude=" + lat + "&longitude=" + lng + "&key=" + encodeURIComponent(key);
-    const r = await fetch(url);
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const js = await r.json();
+    let js = [], radius = radien[0];
+    for (const r of radien) {
+      radius = r;
+      const url = "https://api.openchargemap.io/v3/poi/?output=json&distanceunit=km&distance=" + r + "&maxresults=30&verbose=false&includecomments=true" +
+        (minKw ? "&minpowerkw=" + minKw : "") +
+        "&latitude=" + lat + "&longitude=" + lng + "&key=" + encodeURIComponent(key);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      js = (await resp.json()).filter(p => p.AddressInfo);
+      if (minKw) js = js.filter(p => Math.max(0, ...(p.Connections || []).map(c => c.PowerKW || 0)) >= minKw);
+      if (js.length) break;
+      await sleep(300);
+    }
     state.letzteSuche = {
-      lat, lng, zeit: new Date().toISOString(),
-      stationen: js.filter(p => p.AddressInfo).map(p => {
+      lat, lng, zeit: new Date().toISOString(), minKw, radius,
+      stationen: js.map(p => {
         // Defekt-Radar: Betriebsstatus + letzter Nutzerkommentar von OpenChargeMap
         const komm = (p.UserComments || [])[0];
         return {
@@ -543,6 +585,8 @@ async function sucheSaeulen(lat, lng) {
           kw: Math.max(0, ...(p.Connections || []).map(c => c.PowerKW || 0)),
           anz: (p.Connections || []).reduce((s, c) => s + (c.Quantity || 1), 0),
           defekt: p.StatusType && p.StatusType.IsOperational === false,
+          status: p.StatusType ? (p.StatusType.IsOperational === false ? "außer Betrieb" : "in Betrieb") : "",
+          statusAm: (p.DateLastStatusUpdate || p.DateLastVerified || "").slice(0, 10),
           kommentar: komm ? { text: (komm.Comment || komm.CheckinStatusType && komm.CheckinStatusType.Title || "").slice(0, 120), am: (komm.DateCreated || "").slice(0, 10) } : null,
         };
       }),
@@ -633,6 +677,8 @@ async function ocmBesteSaeule(lat, lng, radiusKm) {
       adresse: [p.AddressInfo.AddressLine1, p.AddressInfo.Town].filter(Boolean).join(", "),
       kw: Math.max(0, ...(p.Connections || []).map(c => c.PowerKW || 0)),
       anz: (p.Connections || []).reduce((s, c) => s + (c.Quantity || 1), 0),
+      status: p.StatusType ? (p.StatusType.IsOperational === false ? "außer Betrieb" : "in Betrieb") : "",
+      statusAm: (p.DateLastStatusUpdate || p.DateLastVerified || "").slice(0, 10),
       dist: haversineKm(lat, lng, p.AddressInfo.Latitude, p.AddressInfo.Longitude),
     })).filter(k => k.kw >= minKw);
   };
@@ -654,6 +700,14 @@ async function ocmBesteSaeule(lat, lng, radiusKm) {
         + (b ? 1.2 : 0)                                     // Netz einer deiner Karten
         + (k.anz >= 4 ? 0.5 : 0)                            // viele Ladepunkte = weniger Wartezeit
         + (!k.op || /unknown/i.test(k.op) ? -1.5 : 0);      // unbekannter Betreiber = unsicher
+      // Begründung mitliefern — in der App per „Warum diese Säule?“ nachlesbar
+      k.warum = [
+        `Leistung ${Math.round(k.kw)} kW → +${stufe} (Stufen: 400er = 10, 350er = 8, 300er = 6, ab 150 = 3)`,
+        `Umweg ≈ ${k.dist.toFixed(1)} km → −${(k.dist / 6).toFixed(1)}`,
+        b ? `Netz passt zu deiner Karte (${b.name}) → +1,2` : "keine deiner Karten passt dort → +0",
+        `${k.anz || "?"} Ladepunkte → ${k.anz >= 4 ? "+0,5 (Warteschlange unwahrscheinlich)" : "+0"}`,
+      ];
+      if (!k.op || /unknown/i.test(k.op)) k.warum.push("Betreiber unbekannt → −1,5 (Risiko)");
     });
     kand.sort((a, b) => b.score - a.score);
     return kand[0];
@@ -684,6 +738,11 @@ async function routePlanen(altIndex) {
     const coords = route.geometry.coordinates;
     const cum = [0];
     for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + haversineKm(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]));
+    // Kompakte Routen-Geometrie ([lat,lng]) mitspeichern: fürs Kartenbild und
+    // damit „Stopp verschieben“ später den echten Streckenpunkt kennt
+    const geoSchritt = Math.max(1, Math.ceil(coords.length / 220));
+    const geo = coords.filter((_, i) => i % geoSchritt === 0 || i === coords.length - 1)
+      .map(c => [+c[1].toFixed(4), +c[0].toFixed(4)]);
 
     routeStatus = "3/5 Länder auf der Route erkennen …"; render();
     const laenderZaehl = {};
@@ -784,7 +843,7 @@ async function routePlanen(altIndex) {
     state.planer.zielErkannt = b.label;
     Object.assign(trip, {
       ziel: (a.kurz || a.label) + " → " + (b.kurz || b.label),
-      hinKm: Math.round(distKm), laender, anteile, stopps, hoehe,
+      hinKm: Math.round(distKm), laender, anteile, stopps, hoehe, geo,
       startCoord: { lat: a.lat, lng: a.lng }, zielCoord: { lat: b.lat, lng: b.lng },
       fahrzeitMin: Math.round(fahrzeitMin), ankunftFinal,
       kaelte: trip.kaelte || "auto",
@@ -798,6 +857,91 @@ async function routePlanen(altIndex) {
   } catch (e) {
     routeStatus = "fehler:Planung fehlgeschlagen (" + e.message + "). Hinweis: Im claude.ai-Link sind externe Abfragen gesperrt — nutze die App über mintberry.org oder am PC.";
     render();
+  }
+}
+
+// Punkt auf der gespeicherten Trip-Geometrie ([lat,lng]-Liste) bei Kilometer x
+function tripPunktBeiKm(trip, km) {
+  const g = trip.geo;
+  if (!g || g.length < 2) return null;
+  let cum = 0;
+  for (let i = 1; i < g.length; i++) {
+    cum += haversineKm(g[i - 1][0], g[i - 1][1], g[i][0], g[i][1]);
+    if (cum >= km) return { lat: g[i][0], lng: g[i][1] };
+  }
+  return { lat: g[g.length - 1][0], lng: g[g.length - 1][1] };
+}
+// Umkehrfunktion: welcher Routen-km liegt einem Punkt (z. B. der Säule) am nächsten?
+function tripKmBeiPunkt(trip, lat, lng) {
+  const g = trip.geo;
+  if (!g || g.length < 2) return null;
+  let cum = 0, bestD = Infinity, bestKm = 0;
+  for (let i = 1; i < g.length; i++) {
+    cum += haversineKm(g[i - 1][0], g[i - 1][1], g[i][0], g[i][1]);
+    const d = haversineKm(lat, lng, g[i][0], g[i][1]);
+    if (d < bestD) { bestD = d; bestKm = cum; }
+  }
+  return bestKm;
+}
+
+/* „25 km früher/später“: Die App verschiebt den Stopp auf der echten Route,
+   sucht dort AUTOMATISCH die beste Säule (gleiche Kriterien wie beim Planen)
+   und zieht Folgestopps vor, wenn einer sonst unter die Reserve fallen würde. */
+let verschiebeLauf = false;
+async function stoppVerschieben(trip, st, deltaKm) {
+  verschiebeLauf = true; render();
+  try {
+    const idx = trip.stopps.indexOf(st);
+    const prevKm = idx > 0 ? trip.stopps[idx - 1].posKm : 0;
+    const nextKm = idx < trip.stopps.length - 1 ? trip.stopps[idx + 1].posKm : trip.hinKm;
+    const neuKm = Math.max(prevKm + 15, Math.min(nextKm - 15, st.posKm + deltaKm));
+    await stoppNeuSuchen(trip, st, neuKm);
+    await stoppKetteReparieren(trip);
+  } catch (e) { /* offline o. Ä. — Position bleibt verschoben, Warnpille zeigt es */ }
+  verschiebeLauf = false;
+  save(); render();
+}
+// Säule an einer (neuen) Strecken-Position suchen und in den Stopp übernehmen
+async function stoppNeuSuchen(trip, st, neuKm) {
+  st.posKm = neuKm;
+  const p = tripPunktBeiKm(trip, neuKm);
+  if (p) { st.lat = p.lat; st.lng = p.lng; }
+  // Eng um den Wunschpunkt suchen (12 km), damit nicht wieder dieselbe
+  // Säule 25 km weiter gewählt wird; ohne Treffer weitet die Suche selbst aus
+  const s = await ocmBesteSaeule(st.lat, st.lng, 12);
+  if (s) {
+    Object.assign(st, {
+      name: s.name, op: s.op, kw: s.kw, adresse: s.adresse, lat: s.lat, lng: s.lng,
+      anz: s.anz, warum: s.warum, score: s.score, status: s.status, statusAm: s.statusAm,
+    });
+    // Rechenposition auf den echten Routen-km der Säule einrasten
+    const snap = tripKmBeiPunkt(trip, s.lat, s.lng);
+    if (snap != null && Math.abs(snap - neuKm) < 60) st.posKm = Math.max(5, Math.min(trip.hinKm - 5, snap));
+    st.platzhalter = false; st.angepasst = false; st.autoNeu = true;
+  } else {
+    st.platzhalter = true; st.angepasst = true; st.autoNeu = false;
+    Object.assign(st, { name: "Geplanter Ladestopp", op: "", kw: 0, adresse: "", warum: null });
+  }
+  stoppsNeuBerechnen(trip);
+}
+// Folgestopps reparieren: Wer rechnerisch unter der Reserve ankäme, wird
+// automatisch so weit vorgezogen, dass es wieder passt — inkl. neuer Säule
+async function stoppKetteReparieren(trip) {
+  const f = state.fahrzeug;
+  const res = Math.min(0.5, Math.max(0.05, state.settings.ankunftSoc / 100));
+  const verbrauch = verbrauchBeiTempo(state.fahrt.tempo, kaelteFaktor(trip));
+  for (let runde = 0; runde < 4; runde++) {
+    stoppsNeuBerechnen(trip);
+    const st = trip.stopps.find(x => x.kritisch);
+    if (!st) break;
+    const idx = trip.stopps.indexOf(st);
+    const prevKm = idx > 0 ? trip.stopps[idx - 1].posKm : 0;
+    const socStart = idx > 0 ? trip.stopps[idx - 1].zielSoc : 100;
+    const reichKm = (socStart - res * 100) / 100 * f.akkuNetto / verbrauch * 100;
+    const zielKm = Math.max(prevKm + 15, prevKm + reichKm * 0.92);
+    if (zielKm >= st.posKm - 5) break; // näher ran geht nicht — Warnung bleibt sichtbar
+    await sleep(300);
+    await stoppNeuSuchen(trip, st, zielKm);
   }
 }
 
@@ -1108,7 +1252,7 @@ function viewStart() {
 
   if (!state.settings.introWeg) {
     html += `<div class="card alert info"><h3>👋 Willkommen zu deinem Lade-Cockpit</h3>
-      <p>Voreingestellt ist nur dein Auto (<b>smart #5 Brabus</b>) und die aktuelle Tarif-Datenbank — <b>alles andere trägst du selbst ein und es bleibt gespeichert</b>:</p>
+      <p>Voreingestellt ist nur dein Auto (<b>smart #5 Brabus</b>) und die aktuelle Tarif-Datenbank — <b>alles andere trägst du selbst ein und es bleibt gespeichert, auch wenn die App aktualisiert wird</b>:</p>
       <p>1️⃣ <b>Orte</b>: wo du regelmäßig lädst (kWh/Monat) → daraus entstehen Karten- &amp; Abo-Empfehlungen mit Rechenbeispiel.<br>
       2️⃣ <b>Trips</b>: Start + Ziel eingeben (Adressen lassen sich als Favoriten speichern) → echte Route, Ladestopps, Karten-Kombi, Checkliste.<br>
       3️⃣ <b>Tarife</b>: markiere, welche Karten du hast. Fragen? Oben rechts das <b>?</b>.</p>
@@ -1266,8 +1410,8 @@ function viewStart() {
 /* ---------- Orte ---------- */
 function viewOrte() {
   let html = `<h1>Deine Ladeorte</h1>
-  <p class="small">Trag ein, wo du regelmäßig lädst und wie viel (kWh pro Monat). Daraus berechnet die App Empfehlungen und Break-even.
-  Faustregel: dein #5 braucht ca. <b>${n1((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2)} kWh/100 km</b> im Alltag — 1.000 km/Monat ≈ ${n0(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10)} kWh.</p>`;
+  <p class="small">Trag ein, wo du regelmäßig lädst und wie viel — am einfachsten in <b>vollen Akkuladungen pro Monat</b> (die App rechnet das in kWh um). Mit einer <b>Adresse</b> (wie bei Google Maps) findet dir die App auf Knopfdruck die Säulen an diesem Ort.
+  Faustregel: dein #5 braucht ca. <b>${n1((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2)} kWh/100 km</b> im Alltag — 1.000 km/Monat ≈ ${n0(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10)} kWh ≈ ${(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10 / state.fahrzeug.akkuNetto).toLocaleString("de-DE", { maximumFractionDigits: 1 })} volle Akkus.</p>`;
   for (const ort of state.orte) {
     const b = besterPreis(ort.netz, ort.art, null);
     html += `<div class="card" data-ort="${ort.id}">
@@ -1278,7 +1422,13 @@ function viewOrte() {
         <div><label class="f">Name</label><input type="text" data-ofeld="name" value="${esc(ort.name)}"></div>
         <div><label class="f">Ladenetz</label><select data-ofeld="netz">${NETZE.map(n => `<option value="${n.id}" ${n.id === ort.netz ? "selected" : ""}>${esc(n.name)}</option>`).join("")}</select></div>
         <div><label class="f">AC / DC</label><select data-ofeld="art"><option value="ac" ${ort.art === "ac" ? "selected" : ""}>AC (normal)</option><option value="dc" ${ort.art === "dc" ? "selected" : ""}>DC (schnell)</option></select></div>
-        <div><label class="f">kWh / Monat</label><input type="number" min="0" step="5" data-ofeld="kwhMonat" value="${ort.kwhMonat}"></div>
+        <div><label class="f">Volle Akkus / Monat</label><input type="number" min="0" step="0.5" data-ofeld="ladungen" value="${ort.kwhMonat ? Math.round(ort.kwhMonat / state.fahrzeug.akkuNetto * 10) / 10 : 0}"></div>
+        <div><label class="f">…oder kWh / Monat</label><input type="number" min="0" step="5" data-ofeld="kwhMonat" value="${ort.kwhMonat}"></div>
+      </div>
+      <p class="small muted">1 voller Akku = <b>${state.fahrzeug.akkuNetto} kWh</b> bei deinem #5 — halbe Ladungen sind ok (z. B. 1,5). Egal welches Feld du füllst, das andere rechnet automatisch mit.</p>
+      <div class="frow" style="align-items:flex-end">
+        <div style="flex:3 1 220px"><label class="f">Adresse (optional, wie bei Google Maps)</label><input type="text" data-ofeld="adresse" value="${esc(ort.adresse || "")}" placeholder="z. B. Musterstr. 12, München"></div>
+        <div style="flex:1 1 160px"><button class="btn small" data-action="ort-saeulen" data-id="${ort.id}" style="width:100%">📍 Säulen dort zeigen</button></div>
       </div>
       <div class="btnrow"><button class="del" data-action="ort-weg" data-id="${ort.id}">Ort entfernen</button></div>
     </div>`;
@@ -1428,17 +1578,36 @@ function viewTrips() {
       ${trip.stopps && trip.stopps.length ? `
       <h3 style="margin-top:14px">⚡ Ladestopp-Plan (Hinfahrt)</h3>
       ${routeSchema(trip)}
+      ${routeKarte(trip)}
       <p class="small">${trip.fahrzeitMin ? `Reine Fahrzeit ~${Math.floor(trip.fahrzeitMin / 60)} h ${Math.round(trip.fahrzeitMin % 60)} min + ~${n0(trip.stopps.reduce((s, x) => s + (x.ladeMin || 0), 0))} min Laden. ` : ""}Ankunft am Ziel mit ca. ${trip.ankunftFinal != null ? trip.ankunftFinal : "–"} % Akku. Jeden Stopp im Auto-Navi als Ziel setzen (→ Vorkonditionierung!): einfach <b>Teilen → Hello smart</b>.</p>
       ${trip.stopps.map((st, i) => stoppCard(st, i, trip.id)).join("")}
       <p class="small muted">Rückfahrt: gleiche Logik in Gegenrichtung — vor Abfahrt am Ziel wieder vollladen. Positionen sind Planwerte; unterwegs zeigt dir der Fahrmodus jederzeit Alternativen.</p>` : ""}
 
-      <h3 style="margin-top:14px">Lade-Strategien unterwegs im Vergleich</h3>
+      <h3 style="margin-top:14px">💳 Ladekarten-Empfehlung für diese Fahrt</h3>
+      <p class="small">Was kostet das Schnellladen unterwegs (${n0(ana.dcUnterwegs)} kWh) je Karte/App? <b>Antippen zum Aufklappen</b> — mit Rechenweg, Länder-Check und Bestell-Link. Nochmal antippen schließt wieder. Ein Abo empfiehlt die App nur, wenn es MIT Grundgebühr günstiger ist als die beste kostenlose Variante.</p>
       <div class="hbars">
-        ${ana.kandidaten.map((k, i) => `<div class="hbar ${i === 0 ? "best" : ""}">
-          <div class="top"><span>${esc(k.label)}${k.unsicher ? " ⚠" : ""}${i === 0 ? " — Empfehlung" : ""}</span><span class="val">${eur(k.kosten, 0)}</span></div>
-          <div class="track"><div class="fill" style="width:${Math.max(3, k.kosten / maxK * 100)}%"></div></div>
-        </div>`).join("")}
+        ${ana.kandidaten.map((k, i) => `<details class="strategie">
+          <summary><div class="hbar ${i === 0 ? "best" : ""}">
+            <div class="top"><span>${i === 0 ? "⭐ " : ""}${esc(k.label)}${k.unsicher ? " ⚠" : ""}${i === 0 ? " — Empfehlung" : ""}</span><span class="val">${eur(k.kosten, 0)}</span></div>
+            <div class="track"><div class="fill" style="width:${Math.max(3, k.kosten / maxK * 100)}%"></div></div>
+          </div></summary>
+          <div class="sdetail">
+            <div class="calcbox">
+              <div class="line"><span><b>So kommt der Preis zustande:</b></span><span></span></div>
+              ${k.grund ? `<div class="line"><span>Grundgebühr (1 Monat${k.abo ? ", danach kündigen" : ""})</span><span>${eur(k.grund)}</span></div>` : ""}
+              <div class="line"><span>${n0(k.kwhCov)} kWh × ${ct(k.preis)} (${esc(netzKurz(k.netz))})</span><span>${eur(k.preis * k.kwhCov)}</span></div>
+              ${k.kwhRest > 0.5 ? `<div class="line"><span>+ ${n0(k.kwhRest)} kWh × ${ct(k.lueckePreis)} (Streckenteil ohne dieses Netz)</span><span>${eur(k.lueckePreis * k.kwhRest)}</span></div>` : ""}
+              <div class="line total"><span>Unterwegs gesamt</span><span>${eur(k.kosten)}</span></div>
+              ${ana.bestOhneAbo && ana.bestOhneAbo !== k ? `<div class="line"><span>Vergleich beste 0-€-Option (${esc(ana.bestOhneAbo.label.split(" — ")[0])}: ${eur(ana.bestOhneAbo.kosten, 0)})</span><span>${k.kosten < ana.bestOhneAbo.kosten - 0.005 ? "spart " + eur(ana.bestOhneAbo.kosten - k.kosten) : "+" + eur(k.kosten - ana.bestOhneAbo.kosten) + " teurer"}</span></div>` : ""}
+            </div>
+            <p class="small">🌍 <b>Länder-Check:</b> ${laenderCheck(k, trip)}</p>
+            <p class="small">💳 ${esc(kartenKostenText(k.tarif))}${k.tarif.bindung ? " · Bindung: " + esc(k.tarif.bindung) : ""}${besitzt(k.tarif) ? ' · <span class="pill acc">hast du schon</span>' : ""}</p>
+            ${k.tarif.hinweis ? `<p class="small muted">${esc(k.tarif.hinweis)}</p>` : ""}
+            ${k.tarif.bestellLink ? `<div class="btnrow"><a class="btn small primary" href="${esc(k.tarif.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter — bestellen / Preis gegenprüfen</a></div>` : ""}
+          </div>
+        </details>`).join("")}
       </div>
+      ${landBesteText(trip, ana)}
       ${ana.tipp ? `<p class="small" style="color:var(--warn)">💡 Ohne den „Nur meine Karten“-Filter wäre günstiger: <b>${esc(ana.tipp.label)}</b> (${eur(ana.tipp.kosten, 0)}) — die Karte/das Abo fehlt dir noch.</p>` : ""}
       ${ana.best ? `<div class="calcbox">
         <div class="line"><span><b>Empfehlung: ${esc(ana.best.label)}</b></span><span></span></div>
@@ -1510,6 +1679,13 @@ function viewFahren() {
       <div class="s"><div class="v num">${n0(fr.energie)} kWh</div><div class="l">im Akku (≈ ${n0(fr.socEff)} %)</div></div>
     </div>
     <p class="small" style="margin-top:8px">Plane Ladestopps innerhalb der <b>sicheren</b> km. ${fa.modus === "restkm" ? "Die Anzeige-km rechnet der Bordcomputer mit Misch-Verbrauch — bei Autobahn-Tempo kommst du real weniger weit; genau das korrigiert diese Rechnung." : ""}</p>
+    <details class="plain"><summary>Was heißt „SICHER“? (Reserve + Sicherheitspuffer erklärt)</summary>
+      <p class="small">Die App zieht von der Reichweite <b>zwei</b> Dinge ab, damit die Zahl verlässlich ist:<br>
+      <b>1) Ankunfts-Reserve (${state.settings.ankunftSoc} %):</b> mit so viel Rest-Akku willst du mindestens an der Säule ankommen — falls sie besetzt oder kaputt ist, kommst du noch zur nächsten.<br>
+      <b>2) Sicherheitspuffer (${state.settings.puffer} %):</b> Abzug für alles Unplanbare — Stau, Umleitung, Gegenwind, Regen, kalter Akku.<br>
+      <b>„SICHER erreichbar“</b> schaffst du also selbst dann, wenn unterwegs etwas dazwischenkommt. <b>„Theoretisch maximal“</b> rechnet bis 0 % Akku — nur zur Einordnung, nie darauf planen.</p>
+      <div class="frow"><div><label class="f">Sicherheitspuffer (%)</label><input type="number" min="0" max="40" step="5" data-sfeld="puffer" value="${state.settings.puffer}"></div></div>
+    </details>
   </div>
 
   <div class="card"><h2>📍 Nächste Ladesäulen finden</h2>
@@ -1519,9 +1695,14 @@ function viewFahren() {
       <button class="btn primary" data-action="suche-standort">📍 Um mich herum</button>
     </div>
     <div class="frow" style="margin-top:8px; align-items:flex-end">
-      <div style="flex:3 1 200px"><label class="f">…oder Ort/Adresse</label><input type="text" id="suchadresse" placeholder="z. B. Villach" value=""></div>
+      <div style="flex:3 1 180px"><label class="f">…oder Ort/Adresse</label><input type="text" id="suchadresse" placeholder="z. B. Villach" value=""></div>
+      <div style="flex:2 1 140px"><label class="f">Wunsch-Leistung</label><select data-sfeld="suchKw">
+        <option value="0" ${!state.settings.suchKw ? "selected" : ""}>egal — alles zeigen</option>
+        ${[50, 150, 300, 350, 400].map(k => `<option value="${k}" ${+state.settings.suchKw === k ? "selected" : ""}>mind. ${k} kW</option>`).join("")}
+      </select></div>
       <div style="flex:1 1 90px"><button class="btn" data-action="suche-adresse" style="width:100%">Suchen</button></div>
     </div>
+    <p class="small muted">Bei „egal“ zeigt dir die App den <b>nächsten Schnelllader</b> und die <b>nächste normale AC-Säule</b> zuerst. Gibt's bei dir keine 350/400er? Wunsch-Leistung einstellen — dann sucht die App automatisch in größerem Umkreis (bis 300 km) nach dem nächsten passenden.</p>
     ${sucheStatus === "ortung" ? '<p class="small">📡 Standort wird ermittelt …</p>' : ""}
     ${sucheStatus === "lädt" ? '<p class="small">⏳ Säulen werden geladen …</p>' : ""}
     ${sucheStatus === "kein-key" ? '<p class="small" style="color:var(--warn)">Bitte erst den OpenChargeMap-Key eintragen (siehe oben).</p>' : ""}
@@ -1626,8 +1807,8 @@ function stationCard(st, distKm, fr) {
   }
   const fav = state.favoriten.some(x => x.id === st.id);
   return `<div class="card flat station">
-    <div class="tarif head"><b>${esc(st.name)}</b><span class="preis-haupt num">${st.kw ? n0(st.kw) + " kW" : ""}</span></div>
-    <div class="meta">${st.op ? `<span class="pill">${esc(st.op)}</span>` : ""}${st.anz ? `<span class="pill">${st.anz} Punkte</span>` : ""}${distKm != null ? `<span class="pill">≈ ${n0(distKm * STRASSEN_FAKTOR)} km Straße</span>` : ""}${reach}${st.defekt ? '<span class="pill crit">⚠ als außer Betrieb gemeldet</span>' : ""}</div>
+    <div class="tarif head"><b>${esc(st.name)}</b> <span class="preis-haupt num">${st.kw ? n0(st.kw) + " kW" : ""}</span></div>
+    <div class="meta">${st.op ? `<span class="pill">${esc(st.op)}</span>` : ""}${st.anz ? `<span class="pill">${st.anz} Ladepunkte</span>` : ""}${st.statusAm ? `<span class="pill">${esc(st.status || "Status")} · Stand ${datumDE(st.statusAm)}</span>` : ""}${distKm != null ? `<span class="pill">≈ ${n0(distKm * STRASSEN_FAKTOR)} km Straße</span>` : ""}${reach}${st.defekt ? '<span class="pill crit">⚠ als außer Betrieb gemeldet</span>' : ""}</div>
     <p class="small">${esc(st.adresse || "")}${b ? ` — deine beste Karte hier: <b>${esc(b.name)}</b> (${ct(b.preis)})` : ` — <b>keine deiner Karten passt hier</b>: nur per Betreiber-App (z. B. Tesla-/Kaufland-App) oder Preis vor Ort prüfen`}</p>
     ${st.kommentar && st.kommentar.text ? `<p class="small muted">💬 Nutzer-Meldung (${esc(st.kommentar.am || "")}): „${esc(st.kommentar.text)}“</p>` : ""}
     <div class="btnrow">
@@ -1641,11 +1822,21 @@ function stationListe(suche, fr) {
   const mitDist = suche.stationen
     .map(st => ({ st, d: haversineKm(suche.lat, suche.lng, st.lat, st.lng) }))
     .sort((a, b) => a.d - b.d);
-  if (!mitDist.length) return '<p class="small">Keine Säulen im Umkreis von 30 km gefunden.</p>';
-  return `<p class="small" style="margin-top:10px">Ergebnis vom ${new Date(suche.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })} (bleibt offline gespeichert):</p>` +
+  if (!mitDist.length) return `<p class="small">Keine Säulen ${suche.minKw ? "mit ≥ " + suche.minKw + " kW " : ""}im Umkreis von ${suche.radius || 30} km gefunden${suche.minKw ? " — Wunsch-Leistung niedriger stellen" : ""}.</p>`;
+  let top = "";
+  if (!suche.minKw) {
+    // Die zwei wichtigsten Antworten zuerst: nächster Schnelllader + nächste AC-Säule
+    const schnell = mitDist.find(x => x.st.kw >= 150);
+    const langsam = mitDist.find(x => x.st.kw > 0 && x.st.kw <= 22);
+    if (schnell) top += `<h3 style="margin-top:12px">⚡ Nächster Schnelllader (DC)</h3>` + stationCard(schnell.st, schnell.d, fr);
+    if (langsam) top += `<h3 style="margin-top:12px">🔌 Nächste normale Säule (AC)</h3>` + stationCard(langsam.st, langsam.d, fr);
+    if (top) top += `<h3 style="margin-top:12px">Alle in der Nähe</h3>`;
+  }
+  return `<p class="small" style="margin-top:10px">Ergebnis vom ${new Date(suche.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}${suche.minKw ? ` · Filter ≥ ${suche.minKw} kW · Suchradius ${suche.radius} km` : ""} (bleibt offline gespeichert):</p>` +
+    top +
     mitDist.slice(0, 15).map(x => stationCard(x.st, x.d, fr)).join("") +
     `<p class="small muted">Legende: <span class="pill good">erreichbar ✓</span> = schaffst du mit deiner Reserve (${state.settings.ankunftSoc} %) + Sicherheitspuffer (${state.settings.puffer} %) · <span class="pill warn">knapp</span> = nur erreichbar, wenn du den Puffer aufbrauchst — nicht empfohlen · <span class="pill crit">zu weit ✗</span> = reicht rechnerisch nicht.</p>
-    <p class="small">💡 Spot-Preischeck aller Kartenkombis an einer fremden Säule: <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a> oder die App <b>Ladefuchs</b>.</p>`;
+    <p class="small muted">ℹ️ Ob gerade <b>frei oder besetzt</b> ist, geben die Betreiber leider nur in ihren eigenen Apps live frei — hier siehst du deshalb die Anzahl der Ladepunkte und den letzten gemeldeten Status samt Datum (Quelle OpenChargeMap). Live-Check kurz vor Ankunft: Betreiber-App oder <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a>/Ladefuchs.</p>`;
 }
 function findeStation(id) {
   if (state.letzteSuche) { const s = state.letzteSuche.stationen.find(x => x.id === id); if (s) return s; }
@@ -1678,6 +1869,63 @@ function routeSchema(trip) {
     <p class="small muted">🟢 Schnelllader (≥ 150 kW) · 🟡 langsamer Lader · 🔴 keine Säule gefunden — Punkte 1–${trip.stopps.length} entsprechen der Liste unten.</p>`;
 }
 
+// Echte Karten-Ansicht der Route: OpenStreetMap-Kacheln + Streckenverlauf +
+// nummerierte Stopps. Braucht Internet — offline zeigt das Schema die Route.
+function routeKarte(trip) {
+  if (!trip.geo || trip.geo.length < 2) return "";
+  const T = 256, W = 680, H = 430;
+  const mx = (lon, z) => (lon + 180) / 360 * Math.pow(2, z);
+  const my = (lat, z) => (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z);
+  const lats = trip.geo.map(p => p[0]), lons = trip.geo.map(p => p[1]);
+  const minLa = Math.min(...lats), maxLa = Math.max(...lats), minLo = Math.min(...lons), maxLo = Math.max(...lons);
+  let z = 12;
+  for (; z > 3; z--) {
+    if ((mx(maxLo, z) - mx(minLo, z)) * T <= W - 70 && (my(minLa, z) - my(maxLa, z)) * T <= H - 70) break;
+  }
+  const cx = (mx(minLo, z) + mx(maxLo, z)) / 2, cy = (my(minLa, z) + my(maxLa, z)) / 2;
+  const px = lon => (mx(lon, z) - cx) * T + W / 2;
+  const py = lat => (my(lat, z) - cy) * T + H / 2;
+  const maxT = Math.pow(2, z);
+  let tiles = "";
+  for (let tx = Math.floor(cx - W / 2 / T); tx <= Math.floor(cx + W / 2 / T); tx++) {
+    for (let ty = Math.max(0, Math.floor(cy - H / 2 / T)); ty <= Math.min(maxT - 1, Math.floor(cy + H / 2 / T)); ty++) {
+      const wrapX = ((tx % maxT) + maxT) % maxT;
+      tiles += `<img src="https://tile.openstreetmap.org/${z}/${wrapX}/${ty}.png" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;left:${Math.round((tx - cx) * T + W / 2)}px;top:${Math.round((ty - cy) * T + H / 2)}px;width:${T}px;height:${T}px">`;
+    }
+  }
+  const pfad = trip.geo.map((p, i) => (i ? "L" : "M") + px(p[1]).toFixed(1) + " " + py(p[0]).toFixed(1)).join(" ");
+  const punkt = (lat, lng, farbe, txt) =>
+    `<circle cx="${px(lng).toFixed(1)}" cy="${py(lat).toFixed(1)}" r="10" fill="${farbe}" stroke="#fff" stroke-width="2.5"/>` +
+    `<text x="${px(lng).toFixed(1)}" y="${(py(lat) + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">${txt}</text>`;
+  let marker = "";
+  if (trip.startCoord) marker += punkt(trip.startCoord.lat, trip.startCoord.lng, "#1a73e8", "S");
+  (trip.stopps || []).forEach((st, i) => {
+    marker += punkt(st.lat, st.lng, st.platzhalter || st.ohneSaeule ? "#c13232" : (st.kw >= 150 ? "#0a7d0a" : "#b07b00"), String(i + 1));
+  });
+  if (trip.zielCoord) marker += punkt(trip.zielCoord.lat, trip.zielCoord.lng, "#1a73e8", "Z");
+  return `<div class="mapwrap" data-w="${W}" data-h="${H}">
+    <div class="mapcanvas" style="width:${W}px;height:${H}px">
+      ${tiles}
+      <svg viewBox="0 0 ${W} ${H}" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px">
+        <path d="${pfad}" fill="none" stroke="#1a73e8" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+        ${marker}
+      </svg>
+      <span class="mapattrib">© OpenStreetMap</span>
+    </div>
+  </div>
+  <p class="small muted">So verläuft die Route wirklich — S = Start, Z = Ziel, Nummern = Ladestopps (grün = Schnelllader, gelb = langsamer, rot = offen). Gefällt dir der Weg nicht: oben eine Alternativ-Route wählen und neu rechnen lassen.</p>`;
+}
+// Karten skalieren sich auf die Kartenbreite des Geräts
+function skaliereKarten() {
+  $$(".mapwrap").forEach(w => {
+    const c = $(".mapcanvas", w);
+    if (!c) return;
+    const s = Math.min(1, (w.clientWidth || 680) / (+w.dataset.w || 680));
+    c.style.transform = "scale(" + s + ")";
+    w.style.height = Math.round((+w.dataset.h || 430) * s) + "px";
+  });
+}
+
 // Kompakte Stopp-Karte im Trip (Ladestopp-Plan)
 function stoppCard(st, i, tripId) {
   const netz = st.op ? opZuNetz(st.op) : null;
@@ -1690,18 +1938,24 @@ function stoppCard(st, i, tripId) {
       <span class="pill ${st.kritisch ? "crit" : "acc"}">Ankunft ~${st.ankunftSoc} %${st.kritisch ? " ⚠ unter Reserve!" : ""}</span>
       <span class="pill good">laden auf ${st.zielSoc} % (~${st.ladeMin} min, ${st.kwh} kWh)</span>
       ${st.kw ? `<span class="pill">${n0(st.kw)} kW</span>` : ""}
+      ${st.anz ? `<span class="pill">${st.anz} Ladepunkte${st.statusAm ? " · Status v. " + datumDE(st.statusAm) : ""}</span>` : ""}
       ${st.kw && st.kw < 150 ? '<span class="pill warn">⚠ langsamer Lader — Zeit einplanen</span>' : ""}
       ${st.zielFest ? '<span class="pill warn">hier auf 100 % — danach kommt lange nichts!</span>' : ""}
       ${st.op && !/unknown/i.test(st.op) ? `<span class="pill">${esc(st.op)}</span>` : ""}
-      ${st.angepasst ? '<span class="pill warn">verschoben — Säule neu wählen</span>' : ""}
+      ${st.autoNeu ? '<span class="pill good">Säule automatisch neu gewählt ✓</span>' : ""}
+      ${st.angepasst ? '<span class="pill warn">verschoben — hier keine Säule gefunden</span>' : ""}
+      ${verschiebeLauf ? '<span class="pill">⏳ Säule wird gesucht …</span>' : ""}
     </div>
     ${st.ohneSaeule ? `<p class="small" style="color:var(--crit)"><b>In diesem Abschnitt hat OpenChargeMap keinen Schnelllader</b> (dünnes Netz, z. B. Bosnien). Plan: am Stopp davor auf 100 %, hier nur Notfall-Optionen — vorab auf PlugShare prüfen.</p>` : ""}
     <p class="small">${st.platzhalter || st.angepasst ? `Geplante Position — konkrete Säule hier aussuchen: <a href="${ocmMap}" target="_blank" rel="noopener">OpenChargeMap-Karte</a>` : esc(st.adresse || "")}${b ? ` — beste Karte: <b>${esc(b.name)}</b> (${ct(b.preis)})` : ""}</p>
+    ${st.warum && st.warum.length ? `<details class="plain"><summary>Warum diese Säule?${st.score != null ? " (" + n1(st.score) + " Punkte)" : ""}</summary>
+      <ul class="dots small">${st.warum.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
+      <p class="small muted">So wählt die App: Leistungs-Stufe minus Umweg, plus Bonus für dein Karten-Netz und viele Ladepunkte — die Säule mit den meisten Punkten gewinnt. Gleiche Logik bei „25 km früher/später“.</p></details>` : ""}
     <div class="btnrow">
       <a class="btn small primary" href="${mapsUrl(st)}" target="_blank" rel="noopener">🗺 Google Maps</a>
       <button class="btn small" data-action="station-teilen" data-id="${esc(tripId + "-" + st.id)}">📤 Teilen (→ Hello smart)</button>
-      <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="-25">◀ 25 km früher</button>
-      <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="25">25 km später ▶</button>
+      <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="-25" ${verschiebeLauf ? "disabled" : ""}>◀ 25 km früher</button>
+      <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="25" ${verschiebeLauf ? "disabled" : ""}>25 km später ▶</button>
     </div>
   </div>`;
 }
@@ -1727,6 +1981,7 @@ function viewWissen() {
    EVENTS
    ============================================================ */
 function bindDynamic() {
+  skaliereKarten();
   // Chart-Hover
   const box = $("#chartbox");
   if (box) {
@@ -1792,6 +2047,13 @@ document.addEventListener("click", (e) => {
   if (act === "route-planen") { routePlanen(); return; }
   if (act === "suche-standort") { standortSuche(); return; }
   if (act === "suche-adresse") { const inp = $("#suchadresse"); adresseSuche(inp ? inp.value.trim() : ""); return; }
+  if (act === "ort-saeulen") {
+    const ort = state.orte.find(o => o.id === id);
+    if (!ort || !(ort.adresse || "").trim()) { alert("Erst beim Ort eine Adresse eintragen — dann findet die App die Säulen dort."); return; }
+    state.tab = "fahren"; save(); render();
+    adresseSuche(ort.adresse.trim());
+    return;
+  }
   if (act === "station-teilen") { const st = findeStation(id); if (st) stationTeilen(st); return; }
   if (act === "station-fav") {
     const st = findeStation(id);
@@ -1888,21 +2150,8 @@ document.addEventListener("click", (e) => {
   if (act === "stop-move") {
     const trip = state.trips.find(t => t.id === btn.dataset.trip);
     const st = trip && (trip.stopps || []).find(x => x.id === id);
-    if (st) {
-      const idx = trip.stopps.indexOf(st);
-      const prevKm = idx > 0 ? trip.stopps[idx - 1].posKm : 0;
-      const nextKm = idx < trip.stopps.length - 1 ? trip.stopps[idx + 1].posKm : trip.hinKm;
-      st.posKm = Math.max(prevKm + 15, Math.min(nextKm - 15, st.posKm + (+btn.dataset.delta || 0)));
-      // Koordinaten grob zwischen den Nachbar-Stopps interpolieren (für Maps/OCM-Link)
-      const A = idx > 0 ? trip.stopps[idx - 1] : null, B = idx < trip.stopps.length - 1 ? trip.stopps[idx + 1] : null;
-      if (A && B && B.posKm > A.posKm) {
-        const fr = (st.posKm - A.posKm) / (B.posKm - A.posKm);
-        st.lat = A.lat + (B.lat - A.lat) * fr;
-        st.lng = A.lng + (B.lng - A.lng) * fr;
-      }
-      st.angepasst = true;
-      stoppsNeuBerechnen(trip);
-    }
+    if (st && !verschiebeLauf) stoppVerschieben(trip, st, +btn.dataset.delta || 0);
+    return;
   }
   if (act === "tarife-json") {
     const blob = new Blob([JSON.stringify({ preisstand: state.settings.preiseGeprueft, tarife: state.tarife }, null, 1)], { type: "application/json" });
@@ -1937,6 +2186,11 @@ document.addEventListener("change", (e) => {
     if (ort) {
       let v = t.value;
       if (t.dataset.ofeld === "kwhMonat") v = Math.max(0, +v || 0);
+      if (t.dataset.ofeld === "ladungen") {
+        // Eingabe in vollen Akkuladungen -> kWh (1 Ladung = Akku-Netto-Kapazität)
+        ort.kwhMonat = Math.round(Math.max(0, +String(v).replace(",", ".") || 0) * state.fahrzeug.akkuNetto);
+        save(); render(); return;
+      }
       ort[t.dataset.ofeld] = v;
       save(); render();
     }
@@ -1972,6 +2226,14 @@ document.addEventListener("change", (e) => {
     save(); render();
   }
   // Einstellungen / Fahrzeug
+  if (t.dataset.sfeld === "suchKw") {
+    // Wunsch-Leistung geändert -> letzte Suche direkt mit neuem Filter wiederholen
+    state.settings.suchKw = Math.max(0, +t.value || 0);
+    save();
+    if (state.letzteSuche) sucheSaeulen(state.letzteSuche.lat, state.letzteSuche.lng);
+    else render();
+    return;
+  }
   if (t.dataset.sfeld) { state.settings[t.dataset.sfeld] = Math.max(0, +t.value || 0); save(); render(); }
   if (t.dataset.sfeldtext) { state.settings[t.dataset.sfeldtext] = t.value.trim(); save(); render(); }
   if (t.dataset.scheck) { state.settings[t.dataset.scheck] = t.checked; save(); render(); }
@@ -2020,6 +2282,8 @@ render();
 checkTarifUpdate();
 // Blockier-Timer: Anzeige minütlich auffrischen, solange er läuft
 setInterval(() => { if (state.ladeTimer && state.tab === "fahren") render(); }, 60000);
+// Routen-Karten an die Fensterbreite anpassen
+window.addEventListener("resize", skaliereKarten);
 // Offline-Modus: Service Worker (nur über http/https, Datei liegt neben index.html)
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register("sw.js").catch(() => { /* Datei fehlt (z. B. Artifact) — ok */ });

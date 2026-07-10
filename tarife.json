@@ -1,11 +1,12 @@
 {
- "preisstand": "2026-07-08",
- "entfernt": [],
+ "preisstand": "2026-07-10",
  "tarife": [
   {
    "id": "maingau",
    "name": "Maingau EinfachStromLaden",
    "kategorie": "frei",
+   "bestellLink": "https://www.maingau-energie.de/e-mobilitaet",
+   "einmalKosten": 0,
    "grund": 0,
    "medium": "Karte + App",
    "laender": "EU-weit (inkl. AT/SI/HR)",
@@ -18,7 +19,11 @@
     "ac": 0.52,
     "dc": 0.62
    },
-   "blockier": "Standzeitgebühr 10 ct/min (AC nach 180 min, DC nach 60 min), gedeckelt bei 12 €/Ladevorgang.",
+   "blockier": "Standzeitgebühr 10 ct/min (AC nach 4 h, DC nach 1 h), gedeckelt bei 12 €/Ladevorgang.",
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 60
+   },
    "hinweis": "Seit 1.7.2026 gestaffelte Preise je Säule: Niedrig 0,52 (AC) / 0,62 (DC) — Standard 0,72 — Hoch 0,82. Preis vor dem Laden in der App prüfen! Ionity bleibt in der Niedrigpreis-Stufe (0,62). Maingau-Energiekunden zahlen je 10 ct weniger.",
    "basisEmpfehlung": true
   },
@@ -26,6 +31,9 @@
    "id": "enbw-s",
    "name": "EnBW mobility+ S",
    "kategorie": "frei",
+   "bestellLink": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
+   "einmalKosten": 9.9,
+   "einmalHinweis": "physische Karte 9,90 € — nur App: 0 €",
    "grund": 0,
    "medium": "Karte + App",
    "laender": "DE, AT, CH u. a. (HyperNetz)",
@@ -44,13 +52,21 @@
     "dc": 0.69
    },
    "blockier": "Blockiergebühr nach 4 h Standzeit.",
-   "hinweis": "Sommeraktion 08.07.–30.09.2026: 0,51 statt 0,56 an EnBW-Säulen. Roaming im HyperNetz 0,56–0,89 je Betreiber (hier mit 0,69 gerechnet — in der App je Säule prüfen).",
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 240
+   },
+   "hinweis": "Sommeraktion Juli–Sept. 2026: 0,51 statt 0,56 an EnBW-Säulen. Roaming im HyperNetz 0,56–0,89 je Betreiber (hier mit 0,69 gerechnet — in der App je Säule prüfen).",
    "basisEmpfehlung": true
   },
   {
    "id": "enbw-m",
    "name": "EnBW mobility+ M",
    "kategorie": "abo",
+   "bestellLink": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
+   "einmalKosten": 9.9,
+   "einmalHinweis": "physische Karte 9,90 € — nur App: 0 €",
+   "bindung": "monatlich kündbar",
    "grund": 5.99,
    "medium": "Karte + App",
    "laender": "DE, AT, CH u. a. (HyperNetz)",
@@ -70,12 +86,20 @@
    },
    "roamingUnsicher": true,
    "blockier": "Blockiergebühr nach 4 h Standzeit.",
-   "hinweis": "Sommeraktion 08.07.–30.09.2026: 0,41 statt 0,46 an EnBW-Säulen. Monatlich kündbar. Roaming-Preise je Betreiber in der App prüfen."
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 240
+   },
+   "hinweis": "Sommeraktion Juli–Sept. 2026: 0,41 statt 0,46 an EnBW-Säulen. Monatlich kündbar. Roaming-Preise je Betreiber in der App prüfen."
   },
   {
    "id": "enbw-l",
    "name": "EnBW mobility+ L",
    "kategorie": "abo",
+   "bestellLink": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
+   "einmalKosten": 9.9,
+   "einmalHinweis": "physische Karte 9,90 € — nur App: 0 €",
+   "bindung": "monatlich kündbar",
    "grund": 11.99,
    "medium": "Karte + App",
    "laender": "DE, AT, CH u. a. (HyperNetz)",
@@ -95,12 +119,19 @@
    },
    "roamingUnsicher": true,
    "blockier": "Blockiergebühr nach 4 h Standzeit.",
-   "hinweis": "Sommeraktion 08.07.–30.09.2026: 0,34 statt 0,39 an EnBW-Säulen (EnBW-Strom-/Gaskunden sogar 0,30). Monatlich kündbar."
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 240
+   },
+   "hinweis": "Sommeraktion: 0,34 statt 0,39 an EnBW-Säulen (EnBW-Strom-/Gaskunden sogar 0,30). Monatlich kündbar."
   },
   {
    "id": "swm-flex",
    "name": "SWM Ladekarte Flex",
    "kategorie": "frei",
+   "bestellLink": "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+   "einmalKosten": 11.9,
+   "einmalHinweis": "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)",
    "grund": 0,
    "medium": "Karte + App",
    "laender": "DE (Ladenetz-Verbund)",
@@ -110,18 +141,19 @@
      "dc": 0.69
     }
    },
-   "roaming": {
-    "ac": 0.59,
-    "dc": 0.79
-   },
-   "blockier": "An SWM-Säulen keine Blockiergebühr. An anderen Anbietern: AC nach 240 min, DC nach 120 min, jeweils 0,10 €/min, max. 25 €/Tag.",
-   "hinweis": "Neu ab 1.7.2026. Für deine AC-Säulen ums Eck in München. Roaming-Preise für andere Anbieter hinzugefügt.",
+   "roaming": null,
+   "blockier": "Je Säule; an SWM-Säulen moderat.",
+   "hinweis": "Neu ab 1.7.2026. Für deine AC-Säulen ums Eck in München.",
    "basisEmpfehlung": true
   },
   {
    "id": "swm-komfort",
    "name": "SWM Ladekarte Komfort",
    "kategorie": "abo",
+   "bestellLink": "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+   "einmalKosten": 11.9,
+   "einmalHinweis": "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)",
+   "bindung": "monatlich kündbar",
    "grund": 4.95,
    "medium": "Karte + App",
    "laender": "DE (Ladenetz-Verbund)",
@@ -131,17 +163,17 @@
      "dc": 0.64
     }
    },
-   "roaming": {
-    "ac": 0.54,
-    "dc": 0.74
-   },
-   "blockier": "An SWM-Säulen keine Blockiergebühr. An anderen Anbietern: AC nach 240 min, DC nach 120 min, jeweils 0,10 €/min, max. 25 €/Tag.",
-   "hinweis": "Neu ab 1.7.2026. Lohnt ab ~99 kWh/Monat an SWM-Säulen gegenüber Flex. Roaming-Preise für andere Anbieter hinzugefügt."
+   "roaming": null,
+   "hinweis": "Neu ab 1.7.2026. Lohnt ab ~99 kWh/Monat an SWM-Säulen gegenüber Flex."
   },
   {
    "id": "swm-pro",
    "name": "SWM Ladekarte Pro",
    "kategorie": "abo",
+   "bestellLink": "https://www.swm.de/elektromobilitaet/oeffentliche-ladestationen/ladekarte-e-auto",
+   "einmalKosten": 11.9,
+   "einmalHinweis": "11,90 € je Kartenbestellung — auch Ersatz-/Zusatzkarte (Preisblatt swm.de, Stand 07/2026)",
+   "bindung": "monatlich kündbar",
    "grund": 14.95,
    "medium": "Karte + App",
    "laender": "DE (Ladenetz-Verbund)",
@@ -151,17 +183,14 @@
      "dc": 0.54
     }
    },
-   "roaming": {
-    "ac": 0.52,
-    "dc": 0.64
-   },
-   "blockier": "An SWM-Säulen keine Blockiergebühr. An anderen Anbietern: AC nach 240 min, DC nach 120 min, jeweils 0,10 €/min, max. 25 €/Tag.",
-   "hinweis": "Neu ab 1.7.2026. Nur für Viellader an SWM-Säulen. Roaming-Preise für andere Anbieter hinzugefügt."
+   "roaming": null,
+   "hinweis": "Neu ab 1.7.2026. Nur für Viellader an SWM-Säulen."
   },
   {
    "id": "aral-klassik",
    "name": "Aral pulse Klassik",
    "kategorie": "frei",
+   "bestellLink": "https://www.aral-pulse.de/",
    "grund": 0,
    "medium": "nur App",
    "laender": "DE",
@@ -172,14 +201,15 @@
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "Seit 1.7.2026 um 7 ct gesenkt. AC 0,47 €, DC bis 50 kW 0,52 €, DC über 50 kW 0,62 €. Kostenlos, nur App-Registrierung.",
+   "hinweis": "Seit 1.7.2026 um 7 ct gesenkt. DC bis 50 kW sogar 0,52. Kostenlos, nur App-Registrierung.",
    "basisEmpfehlung": true
   },
   {
    "id": "aral-extra",
    "name": "Aral pulse Extra",
    "kategorie": "abo",
+   "bestellLink": "https://www.aral-pulse.de/",
+   "bindung": "monatlich kündbar",
    "grund": 2.99,
    "medium": "nur App",
    "laender": "DE",
@@ -190,13 +220,14 @@
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "HPC 0,54 €, DC bis 50 kW 0,46 €, AC 0,41 €. Lohnt ab ~38 kWh/Monat an Aral pulse."
+   "hinweis": "HPC 0,54, DC bis 50 kW 0,46, AC 0,41. Lohnt ab ~37 kWh/Monat an Aral pulse."
   },
   {
    "id": "adac-echarge",
    "name": "ADAC e-Charge (Aral pulse)",
    "kategorie": "frei",
+   "bestellLink": "https://www.adac.de/services/adac-e-charge/",
+   "einmalKosten": 0,
    "grund": 0,
    "medium": "Karte + App",
    "laender": "DE + Roaming",
@@ -211,15 +242,16 @@
     "ac": 0.75,
     "dc": 0.75
    },
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "Nur sinnvoll, wenn du eh ADAC-Mitglied bist — der Klassik-Tarif (App) ist an Aral inzwischen günstiger (AC 0,47), nur bei HPC ist e-Charge mit 0,55 vs. 0,62 vorn. Roaming-Preise bestätigt."
+   "hinweis": "Nur sinnvoll, wenn du eh ADAC-Mitglied bist — der Klassik-Tarif (App) ist an Aral inzwischen günstiger (AC 0,47), nur bei HPC ist e-Charge mit 0,55 vs. 0,62 vorn."
   },
   {
    "id": "ionity-motion",
    "name": "Ionity Motion",
    "kategorie": "abo",
+   "bestellLink": "https://ionity.eu/de/netzwerk-und-preise",
+   "bindung": "monatlich kündbar (Jahresvariante: 12 Monate)",
    "grund": 5.99,
-   "jahresAlternative": "59,90 €/Jahr (Motion 365)",
+   "jahresAlternative": "59,99 €/Jahr (Motion 365)",
    "medium": "nur App",
    "laender": "Europaweit an Ionity",
    "preise": {
@@ -228,13 +260,14 @@
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "Seit 1.7.2026: 0,53 €/kWh (vorher 0,49 €/kWh). Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen. Jahresabo 'Motion 365' für 59,90 €/Jahr ebenfalls 0,53 €/kWh."
+   "hinweis": "Seit 1.7.2026: 0,53 (vorher 0,49). Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen."
   },
   {
    "id": "ionity-power",
    "name": "Ionity Power",
    "kategorie": "abo",
+   "bestellLink": "https://ionity.eu/de/netzwerk-und-preise",
+   "bindung": "monatlich kündbar",
    "grund": 11.99,
    "medium": "nur App",
    "laender": "Europaweit an Ionity",
@@ -245,30 +278,29 @@
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "Preis nach der Erhöhung zum 1.7.2026 bitte in der Ionity-App prüfen (Abos starteten zuvor ab 0,39 €/kWh). Jahresabo 'Power 365' für 119,99 €/Jahr bietet 0,42 €/kWh."
+   "hinweis": "Preis nach der Erhöhung zum 1.7.2026 bitte in der Ionity-App prüfen (Abos starteten zuvor ab 0,39)."
   },
   {
    "id": "ionity-go",
    "name": "Ionity Go (App, ohne Abo)",
    "kategorie": "frei",
+   "bestellLink": "https://ionity.eu/de/netzwerk-und-preise",
    "grund": 0,
    "medium": "nur App",
    "laender": "Europaweit an Ionity",
    "preise": {
     "ionity": {
-     "dc": 0.7,
-     "unsicher": true
+     "dc": 0.66
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "Ohne Grundgebühr. Seit 1.7.2026: 0,68–0,72 €/kWh. Ad-hoc an der Säule (Ionity Direct) kostet 0,72–0,76 €/kWh."
+   "hinweis": "Ohne Grundgebühr. Ad-hoc an der Säule (Ionity Direct) kostet 0,69."
   },
   {
    "id": "tesla-app",
    "name": "Tesla-App (ohne Abo)",
    "kategorie": "frei",
+   "bestellLink": "https://www.tesla.com/de_de/charging",
    "grund": 0,
    "medium": "nur App",
    "laender": "Europaweit an Superchargern",
@@ -279,13 +311,15 @@
     }
    },
    "roaming": null,
-   "blockier": "Standzeitgebühren können anfallen.",
-   "hinweis": "0,30–0,69 €/kWh je Standort und Uhrzeit (morgens oft günstiger) — hier mit 0,61 €/kWh gerechnet. Rund 240 Standorte in DE, Großteil für Fremdmarken offen."
+   "hinweis": "0,55–0,68 je Standort und Uhrzeit (morgens oft günstiger) — hier mit 0,61 gerechnet. Rund 240 Standorte in DE, Großteil für Fremdmarken offen.",
+   "basisEmpfehlung": true
   },
   {
    "id": "tesla-abo",
    "name": "Tesla Supercharger-Mitgliedschaft",
    "kategorie": "abo",
+   "bestellLink": "https://www.tesla.com/de_de/charging",
+   "bindung": "monatlich kündbar",
    "grund": 9.99,
    "jahresAlternative": "100 €/Jahr",
    "medium": "nur App",
@@ -297,13 +331,14 @@
     }
    },
    "roaming": null,
-   "blockier": "Standzeitgebühren können anfallen.",
-   "hinweis": "0,30–0,55 €/kWh je Standort — hier mit 0,47 €/kWh gerechnet. Monatlich kündbar, gut für Urlaubsmonate (Supercharger auch in SI/HR)."
+   "hinweis": "0,42–0,51 je Standort — hier mit 0,47 gerechnet. Monatlich kündbar, gut für Urlaubsmonate (Supercharger auch in SI/HR)."
   },
   {
    "id": "ewego",
    "name": "EWE Go",
    "kategorie": "frei",
+   "bestellLink": "https://www.ewe-go.de/",
+   "einmalKosten": 0,
    "grund": 0,
    "medium": "Karte + App",
    "laender": "DE + Roaming",
@@ -318,12 +353,17 @@
     "dc": 0.62
    },
    "blockier": "Keine Blockiergebühr!",
-   "hinweis": "Transparent und ohne jede Zusatzgebühr. Interessant Richtung NRW (Oberhausen!) und als Backup: 0,62 €/kWh überall im Roaming. Preise für Juli 2026 unbestätigt, alte Werte beibehalten."
+   "blockierAbMin": {
+    "ac": null,
+    "dc": null
+   },
+   "hinweis": "Transparent und ohne jede Zusatzgebühr. Interessant Richtung NRW (Oberhausen!) und als Backup: 0,62 überall im Roaming."
   },
   {
    "id": "kaufland-app",
    "name": "Lidl/Kaufland (Kaufland-App)",
    "kategorie": "frei",
+   "bestellLink": "https://www.kaufland.de/services/e-laden.html",
    "grund": 0,
    "medium": "nur App",
    "laender": "DE (nur eigene Filialen)",
@@ -334,14 +374,38 @@
     }
    },
    "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "DC bis 50 kW 0,44 €, HPC ab 150 kW 0,47 €. Regelmäßig Aktionen (Juni 2026: 0,27 €/kWh!). Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf.",
+   "hinweis": "DC 0,44, HPC ab 150 kW 0,47 — regelmäßig Aktionen (Juni 2026: 0,27!). Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf.",
+   "basisEmpfehlung": true
+  },
+  {
+   "id": "aldi-app",
+   "name": "Aldi Süd (App/Girocard)",
+   "kategorie": "frei",
+   "bestellLink": "https://www.e-ladestation.aldi-sued.de/",
+   "einmalKosten": 0,
+   "grund": 0,
+   "medium": "nur App",
+   "laender": "DE (nur eigene Filialen, Süd-/Westdeutschland)",
+   "preise": {
+    "aldi": {
+     "ac": 0.29,
+     "dc": 0.47
+    }
+   },
+   "roaming": null,
+   "blockier": "Keine Blockiergebühr — aber Laden nur zu Öffnungszeiten.",
+   "blockierAbMin": {
+    "ac": null,
+    "dc": null
+   },
+   "hinweis": "AC 0,29 — DC 0,44 (ab 50 kW) bzw. 0,47 (HPC ab 150 kW). Keine Grundgebühr. ~1.800 Ladepunkte an über 700 Filialen (auch München-Großhadern). Zahlung per QR/App oder Girocard/Kreditkarte direkt an der Säule — geht also sogar ganz ohne Registrierung.",
    "basisEmpfehlung": true
   },
   {
    "id": "qwello-app",
    "name": "Qwello (App)",
    "kategorie": "frei",
+   "bestellLink": "https://www.qwello.eu/de/",
    "grund": 0,
    "medium": "nur App",
    "laender": "DE (München u. a.)",
@@ -352,13 +416,14 @@
     }
    },
    "roaming": null,
-   "blockier": "Standzeitgebühr kann anfallen.",
-   "hinweis": "AC-Säulen am Straßenrand in München. Preis + Standzeitgebühr vor dem Laden in der Qwello-App prüfen. Preise für Juli 2026 unbestätigt, alte Werte beibehalten."
+   "hinweis": "AC-Säulen am Straßenrand in München. Preis + Standzeitgebühr vor dem Laden in der Qwello-App prüfen."
   },
   {
    "id": "electroverse",
    "name": "Octopus Electroverse",
    "kategorie": "frei",
+   "bestellLink": "https://electroverse.octopus.energy/de",
+   "einmalKosten": 0,
    "grund": 0,
    "medium": "Karte + App",
    "laender": "EU-weit, sehr großes Roaming",
@@ -368,13 +433,16 @@
     "dc": null
    },
    "preisVariabel": true,
-   "hinweis": "Kostenlose Allrounder-Karte, Preis je Säule (in der App sichtbar). Bester Plan B im Ausland (SI/HR), wenn die Haupt-App streikt — kostet nichts im Stand-by. Über 1,4 Mio. Ladepunkte in Europa.",
+   "hinweis": "Kostenlose Allrounder-Karte, Preis je Säule (in der App sichtbar). Bester Plan B im Ausland (SI/HR), wenn die Haupt-App streikt — kostet nichts im Stand-by.",
    "basisEmpfehlung": true
   },
   {
    "id": "smart-charge",
    "name": "smart charge@street (Hello smart)",
    "kategorie": "frei",
+   "bestellLink": "https://de.smart.com/",
+   "einmalKosten": null,
+   "einmalHinweis": "Karte über die Hello-smart-App bestellen — ggf. einmalige Aktivierungsgebühr, wird dort vor der Bestellung angezeigt",
    "grund": 0,
    "medium": "Karte + App",
    "laender": "Europaweit (200.000+ Punkte)",
@@ -384,8 +452,7 @@
     "dc": null
    },
    "preisVariabel": true,
-   "blockier": "Ggf. Blockiergebühren je Betreiber.",
-   "hinweis": "Der markeneigene Tarif zu deinem #5: Go-Tarif ≈ 5 % Rabatt ggü. Peak, Preis je Säule in der Hello-smart-App. Ionity-Pakete (Flex/Max) zubuchbar — vor Langstrecke Preise mit Ionity Motion vergleichen. Ggf. einmalige Aktivierungsgebühr. Preise für Juli 2026 unbestätigt, alte Werte beibehalten."
+   "hinweis": "Der markeneigene Tarif zu deinem #5: Go-Tarif ≈ 5 % Rabatt ggü. Peak, Preis je Säule in der Hello-smart-App. Ionity-Pakete (Flex/Max) zubuchbar — vor Langstrecke Preise mit Ionity Motion vergleichen. Ggf. einmalige Aktivierungsgebühr."
   },
   {
    "id": "adhoc",
@@ -396,34 +463,14 @@
    "laender": "Überall",
    "preise": {
     "ionity": {
-     "dc": 0.74,
-     "unsicher": true
+     "dc": 0.69
     }
    },
    "roaming": {
     "ac": 0.64,
     "dc": 0.79
    },
-   "blockier": "Oft Blockiergebühren nach kurzer Zeit.",
-   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89 €/kWh. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,72–0,76 €/kWh. Aral pulse Ad-hoc: AC 0,59 €, DC bis 50 kW 0,69 €, DC über 50 kW 0,79 €. EnBW Ad-hoc: 0,89 €."
-  },
-  {
-   "id": "aldi-sued",
-   "name": "ALDI SÜD Ladesäulen",
-   "kategorie": "frei",
-   "grund": 0,
-   "medium": "Kreditkarte/App",
-   "laender": "DE (nur eigene Filialen)",
-   "preise": {
-    "aldi-sued": {
-     "ac": 0.29,
-     "dc": 0.47
-    }
-   },
-   "roaming": null,
-   "blockier": "Keine Blockiergebühr bekannt.",
-   "hinweis": "AC 0,29 €, DC bis 50 kW 0,44 €, HPC ab 150 kW 0,47 €. Ohne Abo, mit Kreditkarte nutzbar. Günstigster AC-Preis ohne Grundgebühr.",
-   "basisEmpfehlung": true
+   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,69."
   }
  ]
 }

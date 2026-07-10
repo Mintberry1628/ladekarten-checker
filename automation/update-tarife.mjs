@@ -53,7 +53,17 @@ Regeln:
 8. NEU: Feld "aenderungen" (Array, oberste Ebene): jede Preis-/Konditionsänderung als
    {"id":"tarif-id","was":"DC-Preis","alt":0.53,"neu":0.55,"quelle":"https://…"} —
    mit der Quellen-URL aus deiner Suche. Keine Änderungen = leeres Array.
-9. Antworte AUSSCHLIESSLICH mit der JSON — kein Text davor oder danach.
+9. Prüfe für JEDEN Tarif auch diese Felder und halte sie aktuell:
+   - "einmalKosten": einmalige Kartengebühr in € als ZAHL (0 wenn kostenlos). Aktiv
+     recherchieren (Preisblätter der Anbieter!) statt sie offen zu lassen — die Angabe
+     "beim Anbieter prüfen" ist verboten, wenn die Gebühr auffindbar ist.
+   - "einmalHinweis": kurzer Beleg-Text (z. B. "11,90 € je Kartenbestellung lt. Preisblatt").
+   - "bindung": Kündigungsfrist/Mindestlaufzeit bei Abos.
+   - "bestellLink": offizielle Anbieter-Seite zum Bestellen/Preisvergleich (https-URL).
+     Diese Felder NIE löschen.
+10. Supermarkt-Lader immer mitprüfen (Lidl/Kaufland, Aldi Süd) — dort ändern sich
+   Preise und Aktionen besonders oft.
+11. Antworte AUSSCHLIESSLICH mit der JSON — kein Text davor oder danach.
 
 Aktuelle Datenbank:
 ${JSON.stringify(alt)}`;
@@ -119,6 +129,8 @@ for (const id of pflicht) if (!neu.tarife.some(t => t.id === id) && !(neu.entfer
 for (const t of neu.tarife || []) {
   if (!t.id || !t.name || !["frei", "abo", "adhoc"].includes(t.kategorie)) { fehler.push(`Tarif "${t.id || t.name}": Schema kaputt`); continue; }
   if (typeof t.grund !== "number" || t.grund < 0 || t.grund > 30) fehler.push(`${t.id}: Grundgebühr ${t.grund} außerhalb 0–30 €`);
+  if (t.einmalKosten != null && (typeof t.einmalKosten !== "number" || t.einmalKosten < 0 || t.einmalKosten > 60)) fehler.push(`${t.id}: einmalKosten ${t.einmalKosten} unplausibel (0–60 € oder null)`);
+  if (t.bestellLink != null && !/^https:\/\//.test(t.bestellLink)) fehler.push(`${t.id}: bestellLink ist keine https-URL`);
   const preise = [];
   for (const p of Object.values(t.preise || {})) { if (p.ac != null) preise.push(p.ac); if (p.dc != null) preise.push(p.dc); }
   if (t.roaming) { if (t.roaming.ac != null) preise.push(t.roaming.ac); if (t.roaming.dc != null) preise.push(t.roaming.dc); }
