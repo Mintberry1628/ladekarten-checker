@@ -24,14 +24,18 @@
   --grid: rgba(19, 26, 35, 0.08);
   --shadow: 0 1px 2px rgba(10, 20, 35, 0.06), 0 4px 14px rgba(10, 20, 35, 0.06);
   --radius: 14px;
-  --tab-accent: #2A78D6; /* Bereichsfarbe — wird je Tab von der App gesetzt */
+  --tab-accent: #38BDF8;
+  /* „Electric Neon“: EIN leuchtender Verlaufsakzent Elektro-Blau -> Violett */
+  --neon1: #38BDF8; --neon2: #8B5CF6;
+  --neon: linear-gradient(135deg, #38BDF8 0%, #6366F1 55%, #8B5CF6 100%);
+  --neon-glow: 0 0 16px rgba(56, 189, 248, 0.35);
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0C1118;
-    --card: #151C26;
-    --card2: #1C2532;
+    --bg: #04060B;
+    --card: #0B111C;
+    --card2: #131B2A;
     --ink: #E9EEF4;
     --ink2: #9AAABB;
     --muted: #6B7A8C;
@@ -64,7 +68,7 @@
   --shadow: 0 1px 2px rgba(10, 20, 35, 0.06), 0 4px 14px rgba(10, 20, 35, 0.06);
 }
 :root[data-theme="dark"] {
-  --bg: #0C1118; --card: #151C26; --card2: #1C2532;
+  --bg: #04060B; --card: #0B111C; --card2: #131B2A;
   --ink: #E9EEF4; --ink2: #9AAABB; --muted: #6B7A8C;
   --hairline: rgba(233, 238, 244, 0.09);
   --accent: #3987E5; --accent-ink: #FFFFFF; --accent-soft: rgba(57, 135, 229, 0.16);
@@ -121,9 +125,9 @@ header.app .wrap { display: flex; align-items: center; gap: 12px; }
 .logo { display: flex; align-items: center; gap: 9px; font-weight: 750; letter-spacing: -0.01em; margin-right: auto; }
 .logo .blitz {
   width: 28px; height: 28px; border-radius: 9px; flex: none;
-  background: var(--tab-accent, var(--accent)); color: var(--accent-ink);
+  background: var(--neon); color: #fff;
   display: grid; place-items: center; font-size: 15px;
-  transition: background .25s ease;
+  box-shadow: var(--neon-glow);
 }
 .logo .sub { display: block; font-size: .7rem; font-weight: 500; color: var(--muted); letter-spacing: .02em; }
 nav.top { display: none; gap: 2px; margin-left: auto; }
@@ -134,7 +138,7 @@ nav.top button, .tabbar button {
   padding: 8px 13px; border-radius: 8px; cursor: pointer;
 }
 nav.top button:hover { background: var(--card2); }
-nav.top button.on { background: color-mix(in srgb, var(--tab-accent) 14%, transparent); color: var(--tab-accent); }
+nav.top button.on { background: color-mix(in srgb, var(--neon1) 15%, transparent); color: var(--neon1); text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); }
 .iconbtn {
   appearance: none; border: 1px solid var(--hairline); background: var(--card);
   color: var(--ink2); width: 34px; height: 34px; border-radius: 8px;
@@ -158,13 +162,14 @@ nav.top button.on { background: color-mix(in srgb, var(--tab-accent) 14%, transp
   font-size: .62rem; font-weight: 600; padding: 6px 2px; color: var(--muted);
 }
 .tabbar button svg { width: 21px; height: 21px; }
-.tabbar button.on { color: var(--tab-accent, var(--accent)); }
+.tabbar button.on { color: var(--neon1); text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); }
+.tabbar button.on svg { filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6)); }
 
 /* To-do-Zähler am Start-Tab */
 .tabbar button, nav.top button { position: relative; }
 .badge {
   position: absolute; top: 1px; right: 18%;
-  background: var(--crit); color: #fff;
+  background: var(--crit); color: #fff; box-shadow: 0 0 8px rgba(224, 91, 91, 0.55);
   font-size: .6rem; font-weight: 700; line-height: 1;
   min-width: 15px; height: 15px; border-radius: 8px;
   display: grid; place-items: center; padding: 0 3px;
@@ -200,15 +205,48 @@ main { padding: 16px 0 30px; }
 }
 .bento .tile.gross {
   grid-row: span 2;
-  background: linear-gradient(150deg, color-mix(in srgb, var(--tab-accent) 22%, var(--card2)), var(--card2) 75%);
+  background:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.30), rgba(99, 102, 241, 0.22) 45%, rgba(139, 92, 246, 0.28)),
+    var(--card2);
+  background-size: 200% 200%, auto;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: inset 0 0 38px rgba(56, 189, 248, 0.10), var(--neon-glow);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bento .tile.gross { animation: neonshift 7s ease-in-out infinite alternate; }
+  @keyframes neonshift { from { background-position: 0% 0%, 0 0; } to { background-position: 100% 100%, 0 0; } }
 }
 .bento .z { font-size: 1.7rem; font-weight: 780; letter-spacing: -0.02em; line-height: 1.05; }
 .bento .tile.gross .z { font-size: 2.5rem; }
 .bento .z .unit { font-size: .95rem; font-weight: 600; color: var(--ink2); }
 .bento .l { font-size: .78rem; color: var(--ink2); margin-top: 4px; }
 
-/* ---------- Fortschritts-Ring ---------- */
-.ring { width: 110px; height: 110px; display: block; }
+/* ---------- Fortschritts-Ring (mit Neon-Glühen) ---------- */
+.ring { width: 110px; height: 110px; display: block; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.30)); }
+
+/* ---------- Bereichs-Wasserzeichen: großes Icon je Tab ---------- */
+.tabpane { position: relative; }
+.tabpane::before {
+  content: ""; position: fixed; right: -34px; bottom: 84px;
+  font-size: 230px; line-height: 1; opacity: 0.05;
+  pointer-events: none; z-index: 0; filter: saturate(0);
+}
+.tabpane[data-bereich="start"]::before { content: "⚡"; }
+.tabpane[data-bereich="orte"]::before { content: "📍"; }
+.tabpane[data-bereich="tarife"]::before { content: "💳"; }
+.tabpane[data-bereich="trips"]::before { content: "🗺️"; }
+.tabpane[data-bereich="fahren"]::before { content: "🚗"; }
+.tabpane[data-bereich="wissen"]::before { content: "📖"; }
+
+/* ---------- Puls (laufender Lade-Timer) ---------- */
+.pulsdot {
+  display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: #22D3EE; margin-right: 8px; vertical-align: middle; flex: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pulsdot { animation: puls 1.6s ease-out infinite; }
+  @keyframes puls { 0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.65); } 100% { box-shadow: 0 0 0 14px rgba(34, 211, 238, 0); } }
+}
 
 /* ---------- Hero-Zahl ---------- */
 .hero { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -237,7 +275,8 @@ main { padding: 16px 0 30px; }
   font-size: .92rem; font-weight: 650; padding: 9px 15px;
 }
 .btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--tab-accent, var(--accent)); color: var(--accent-ink); border-color: transparent; }
+.btn.primary { background: var(--neon); color: #fff; border-color: transparent; box-shadow: var(--neon-glow); }
+.btn.primary:hover { filter: brightness(1.12); }
 .btn.small { font-size: .8rem; padding: 5px 10px; }
 .btn.ghost { background: none; }
 .btn.danger { color: var(--crit); }
@@ -330,8 +369,8 @@ details.strategie .sdetail { padding: 6px 2px 12px; border-bottom: 1px dashed va
 .mapattrib { position: absolute; right: 6px; bottom: 4px; background: rgba(255,255,255,.78); color: #333; padding: 0 5px; border-radius: 4px; font-size: 9.5px; }
 .hbar .top { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; margin-bottom: 3px; }
 .hbar .top .val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.hbar .track { background: var(--card2); border-radius: 4px; height: 14px; overflow: hidden; }
-.hbar .fill { height: 100%; border-radius: 4px 0 0 4px; background: var(--s1); min-width: 2px; }
+.hbar .track { background: var(--card2); border-radius: 4px; height: 14px; }
+.hbar .fill { height: 100%; border-radius: 4px 0 0 4px; background: var(--s1); min-width: 2px; filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.28)); }
 .hbar.best .fill { background: var(--s2); }
 .hbar.best .top .val { color: var(--good); }
 

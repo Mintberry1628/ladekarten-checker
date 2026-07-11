@@ -1507,15 +1507,13 @@ const TABS = [
   { id: "wissen", label: "Wissen", icon: "M12 4c-2-1.5-5-1.5-7 0v14c2-1.5 5-1.5 7 0 2-1.5 5-1.5 7 0V4c-2-1.5-5-1.5-7 0v14" },
 ];
 
-const TAB_FARBEN = { start: "#3987E5", orte: "#1BAF7A", tarife: "#9085E9", trips: "#14B8C4", fahren: "#F1862B", wissen: "#8493A3" };
 function render() {
-  // Bereichsfarbe: jeder Tab hat seinen eigenen Akzent (Knöpfe, aktiver Tab, Blitz)
-  document.documentElement.style.setProperty("--tab-accent", TAB_FARBEN[state.tab] || TAB_FARBEN.start);
   renderNav();
   const main = $("#main");
   const fn = { start: viewStart, orte: viewOrte, tarife: viewTarife, trips: viewTrips, fahren: viewFahren, wissen: viewWissen }[state.tab] || viewStart;
   const scrollVorher = window.scrollY;
-  main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}">${fn()}</div>`;
+  // data-bereich steuert das große Wasserzeichen-Icon je Tab (Orientierung)
+  main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}" data-bereich="${state.tab}">${fn()}</div>`;
   bindDynamic();
   // Nur beim Tab-Wechsel nach oben springen — sonst Leseposition behalten
   if (render.letzterTab !== state.tab) window.scrollTo(0, 0);
@@ -1557,7 +1555,7 @@ function viewStart() {
   if (state.ladeTimer) {
     const minL = Math.floor((Date.now() - state.ladeTimer.start) / 60000);
     const restL = state.ladeTimer.grenze == null ? null : state.ladeTimer.grenze - minL;
-    html += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
+    html += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p><span class="pulsdot"></span>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
       <div class="btnrow"><button class="btn small primary" data-tab="fahren">Zum Timer</button></div></div>`;
   }
   // Heute unterwegs? Live-Ansicht mit dem nächsten Stopp
@@ -2260,7 +2258,7 @@ function viewFahren() {
   } else {
     const min = Math.floor((Date.now() - timer.start) / 60000);
     const rest = timer.grenze == null ? null : timer.grenze - min;
-    html += `<div class="card ${rest != null && rest <= 10 ? "alert crit" : "alert good"}" style="margin-top:12px"><h3>⏱ Laden läuft — ${min} min</h3>
+    html += `<div class="card ${rest != null && rest <= 10 ? "alert crit" : "alert good"}" style="margin-top:12px"><h3><span class="pulsdot"></span>⏱ Laden läuft — ${min} min</h3>
       <p>${timer.grenze == null ? "Dieser Tarif hat keine Blockiergebühr — entspann dich. 😌"
         : rest > 0 ? `Noch <b>${rest} min</b> bis zur Blockiergebühr (ab ${timer.grenze} min bei ${esc(timer.tarifName || "deinem Tarif")}).`
         : `<b>Blockiergebühr läuft seit ${-rest} min!</b> Meist ~10 ct/min — Auto umparken.`}</p>
@@ -2520,8 +2518,33 @@ function viewWissen() {
 /* ============================================================
    EVENTS
    ============================================================ */
+// Zahlen zählen beim Tab-Öffnen kurz hoch (nur Bento-Kacheln, nie beim Tippen)
+function zaehleHoch() {
+  if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  $$(".tabpane.neu .bento .z").forEach(el => {
+    const tn = el.firstChild;
+    if (!tn || tn.nodeType !== 3) return;
+    const orig = tn.nodeValue;
+    const m = orig.match(/[\d.,]+/);
+    if (!m) return;
+    const ziel = parseFloat(m[0].replace(/\./g, "").replace(",", "."));
+    if (!isFinite(ziel) || ziel <= 0) return;
+    const dez = (m[0].split(",")[1] || "").length;
+    const t0 = performance.now(), dauer = 600;
+    const tick = (t) => {
+      const f = Math.min(1, (t - t0) / dauer);
+      const wert = ziel * (1 - Math.pow(1 - f, 3)); // sanft auslaufend
+      tn.nodeValue = orig.replace(m[0], wert.toLocaleString("de-DE", { minimumFractionDigits: dez, maximumFractionDigits: dez }));
+      if (f < 1) requestAnimationFrame(tick);
+      else tn.nodeValue = orig;
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
 function bindDynamic() {
   skaliereKarten();
+  zaehleHoch();
   // Chart-Hover
   const box = $("#chartbox");
   if (box) {
