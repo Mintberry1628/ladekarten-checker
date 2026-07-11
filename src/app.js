@@ -425,20 +425,30 @@ function stosszeitText(trip) {
   return "";
 }
 
-/* ---------- Stopp-Umfeld: Was gibt's an der Säule? (OpenStreetMap/Overpass) ---------- */
+/* ---------- Stopp-Umfeld: Was gibt's an der Säule? (OpenStreetMap/Overpass) ----------
+   Der öffentliche Overpass-Server ist oft überlastet — deshalb werden bis zu
+   DREI Server nacheinander probiert; Fehler sind nur vorübergehend (nicht gespeichert). */
 let umfeldLauf = null;
+let umfeldFehler = null;
+const OVERPASS_SERVER = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
 async function stoppUmfeld(st) {
-  umfeldLauf = st.id; render();
-  try {
-    const um = (f) => `node(around:400,${st.lat},${st.lng})${f};`;
-    const q = `[out:json][timeout:10];(${um('[amenity~"^(restaurant|fast_food|cafe)$"]')}${um("[amenity=toilets]")}${um("[shop=supermarket]")}${um("[leisure=playground]")});out body 40;`;
-    const r = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "data=" + encodeURIComponent(q),
-    });
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const js = await r.json();
+  umfeldLauf = st.id; umfeldFehler = null; render();
+  const um = (f) => `node(around:400,${st.lat},${st.lng})${f};`;
+  const q = `[out:json][timeout:15];(${um('[amenity~"^(restaurant|fast_food|cafe)$"]')}${um("[amenity=toilets]")}${um("[shop=supermarket]")}${um("[leisure=playground]")});out body 40;`;
+  let js = null, grund = "";
+  for (const server of OVERPASS_SERVER) {
+    try {
+      const r = await fetch(server + "?data=" + encodeURIComponent(q));
+      if (!r.ok) { grund = "HTTP " + r.status; continue; }
+      js = await r.json();
+      break;
+    } catch (e) { grund = e.message; }
+  }
+  if (js) {
     const z = { essen: [], wc: 0, markt: [], spiel: 0 };
     for (const el of js.elements || []) {
       const t = el.tags || {};
@@ -448,9 +458,17 @@ async function stoppUmfeld(st) {
       if (t.leisure === "playground") z.spiel++;
     }
     st.umfeld = { essen: [...new Set(z.essen)].slice(0, 4), wc: z.wc, markt: [...new Set(z.markt)].slice(0, 2), spiel: z.spiel, stand: heute() };
-  } catch (e) { st.umfeld = { fehler: true }; }
+    save();
+  } else {
+    // NICHT speichern — nur vorübergehende Meldung, Knopf bleibt nutzbar
+    umfeldFehler = {
+      id: st.id,
+      text: "Alle Kartendienste gerade überlastet (" + grund + ") — in 1–2 Minuten nochmal tippen." +
+        (location.hostname.includes("claude") ? " Hinweis: Im claude.ai-Link sind externe Abfragen generell gesperrt — nutze die App vom Pi/PC." : ""),
+    };
+  }
   umfeldLauf = null;
-  save(); render();
+  render();
 }
 
 // Länder-Check einer Karten-Empfehlung: Wo auf der Route gilt sie, wo nicht?
@@ -2466,7 +2484,7 @@ function stoppCard(st, i, tripId, zeit) {
       ${st.umfeld.spiel ? '<span class="pill">🛝 Spielplatz</span>' : ""}
       ${!(st.umfeld.essen || []).length && !st.umfeld.wc && !(st.umfeld.markt || []).length && !st.umfeld.spiel ? '<span class="pill">im 400-m-Umkreis nichts eingetragen</span>' : ""}
     </div>` : ""}
-    ${st.umfeld && st.umfeld.fehler ? '<p class="small muted">Umfeld-Abfrage gerade nicht erreichbar — später erneut.</p>' : ""}
+    ${umfeldFehler && umfeldFehler.id === st.id ? `<p class="small" style="color:var(--warn)">⚠ ${esc(umfeldFehler.text)}</p>` : ""}
     ${st.warum && st.warum.length ? `<details class="plain"><summary>Warum diese Säule?${st.score != null ? " (" + n1(st.score) + " Punkte)" : ""}</summary>
       <ul class="dots small">${st.warum.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
       <p class="small muted">So wählt die App: Leistungs-Stufe minus Umweg, plus Bonus für dein Karten-Netz und viele Ladepunkte — die Säule mit den meisten Punkten gewinnt. Gleiche Logik bei „25 km früher/später“.</p></details>` : ""}
@@ -2711,7 +2729,11 @@ document.addEventListener("click", (e) => {
       ((+trip.personen || 1) > 1 ? " (" + eur(anaT.gesamt / trip.personen, 0) + " pro Person bei " + trip.personen + " Leuten)" : "") +
       (anaT.best ? " · Karte: " + anaT.best.label.split(" — ")[0] : "");
     if (navigator.share) { navigator.share({ text: txt }).catch(() => { }); }
-    else if (navigator.clipboard) { navigator.clipboard.writeText(txt); alert("Zusammenfassung kopiert — z. B. in WhatsApp einfügen."); }
+    else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(
+        () => alert("Zusammenfassung kopiert — z. B. in WhatsApp einfügen."),
+        () => prompt("Zum Kopieren (Strg+C):", txt));
+    } else prompt("Zum Kopieren (Strg+C):", txt);
     return;
   }
   if (act === "recherche-start") {
