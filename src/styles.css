@@ -317,6 +317,24 @@ details.strategie .sdetail { padding: 6px 2px 12px; border-bottom: 1px dashed va
 .drive .socgrid .s .v { font-size: 1.25rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .drive .socgrid .s .l { font-size: .72rem; color: var(--ink2); }
 
+/* ---------- ⓘ-Erklärungen & Einmal-Tipps ---------- */
+.infobtn {
+  appearance: none; border: 1px solid var(--hairline); background: var(--card2);
+  color: var(--ink2); width: 20px; height: 20px; border-radius: 50%;
+  font-size: .72rem; font-weight: 700; font-style: italic; font-family: Georgia, serif;
+  cursor: pointer; vertical-align: text-bottom; margin-left: 6px; line-height: 1; flex: none; padding: 0;
+}
+.infobtn.on, .infobtn:hover { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.infobox {
+  background: var(--card2); border-radius: 8px; padding: 9px 12px;
+  font-size: .84rem; color: var(--ink2); margin: 8px 0 4px; line-height: 1.5;
+}
+.tipp { position: relative; padding-right: 40px; }
+.tippx {
+  position: absolute; top: 6px; right: 6px; appearance: none; border: 0; background: none;
+  color: var(--ink2); font-size: .95rem; cursor: pointer; padding: 5px 7px;
+}
+
 /* ---------- Sonstiges ---------- */
 .divider { border: 0; border-top: 1px solid var(--hairline); margin: 14px 0; }
 pre {

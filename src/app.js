@@ -34,6 +34,7 @@ function defaultState() {
     karten: { maingau: true },           // tarifId -> hat der Nutzer die Karte/App schon?
     abos: {},                            // tarifId -> aktives Abo?
     checks: {},                          // checklisten-häkchen
+    hinweiseWeg: {},                     // dauerhaft ausgeblendete Einmal-Tipps
     settings: {
       schukoPreis: 0.38, preiseGeprueft: PREISSTAND, introWeg: false,
       ocmKey: (typeof OCM_KEY_STANDARD !== "undefined" ? OCM_KEY_STANDARD : ""), puffer: 15, nurMeineKarten: false,
@@ -95,6 +96,18 @@ function loadState() {
 }
 
 function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* voll/privat */ } }
+
+/* ---------- Weniger Text: ⓘ-Erklärungen & Einmal-Tipps ----------
+   Grundprinzip „Antwort zuerst“: sichtbar sind Zahlen, Pillen, Knöpfe.
+   Erklärungen öffnen sich erst auf Tipp aufs ⓘ; Einmal-Tipps lassen sich
+   dauerhaft wegklicken (state.hinweiseWeg). */
+const offeneInfos = new Set();
+const iBtn = (id) => `<button class="infobtn ${offeneInfos.has(id) ? "on" : ""}" type="button" data-info="${id}" aria-label="Erklärung anzeigen">i</button>`;
+const iBox = (id, html) => offeneInfos.has(id) ? `<div class="infobox">${html}</div>` : "";
+function tipp(id, html) {
+  if (state.hinweiseWeg[id]) return "";
+  return `<div class="card flat alert info tipp"><button class="tippx" type="button" data-tippweg="${id}" aria-label="Tipp dauerhaft ausblenden">✕</button>${html}</div>`;
+}
 
 /* ---------- Preis-Engine ---------- */
 // Preis eines Tarifs an einem Netz für AC/DC. null = dort nicht nutzbar.
@@ -1251,18 +1264,14 @@ function viewStart() {
   let html = "";
 
   if (!state.settings.introWeg) {
-    html += `<div class="card alert info"><h3>👋 Willkommen zu deinem Lade-Cockpit</h3>
-      <p>Voreingestellt ist nur dein Auto (<b>smart #5 Brabus</b>) und die aktuelle Tarif-Datenbank — <b>alles andere trägst du selbst ein und es bleibt gespeichert, auch wenn die App aktualisiert wird</b>:</p>
-      <p>1️⃣ <b>Orte</b>: wo du regelmäßig lädst (kWh/Monat) → daraus entstehen Karten- &amp; Abo-Empfehlungen mit Rechenbeispiel.<br>
-      2️⃣ <b>Trips</b>: Start + Ziel eingeben (Adressen lassen sich als Favoriten speichern) → echte Route, Ladestopps, Karten-Kombi, Checkliste.<br>
-      3️⃣ <b>Tarife</b>: markiere, welche Karten du hast. Fragen? Oben rechts das <b>?</b>.</p>
-      <div class="btnrow"><button class="btn small" data-action="intro-weg">Verstanden, ausblenden</button></div></div>`;
+    html += `<div class="card alert info"><h3>👋 Dein Lade-Cockpit</h3>
+      <p>1️⃣ <b>Orte</b>: wo &amp; wie viel du lädst → Empfehlungen mit Rechenbeispiel. 2️⃣ <b>Trips</b>: Start + Ziel → Route, Stopps, Karten-Kombi. 3️⃣ <b>Tarife</b>: markieren, was du hast. Deine Eingaben bleiben gespeichert — auch bei App-Updates. Fragen? Oben rechts <b>?</b>.</p>
+      <div class="btnrow"><button class="btn small" data-action="intro-weg">Verstanden</button></div></div>`;
   }
 
   // Tarif-Update wurde beim Start automatisch übernommen
   if (updateHinweis) {
-    html += `<div class="card alert good"><h3>✓ Tarifdaten automatisch aktualisiert</h3>
-      <p>Neuer Preisstand ${datumDE(updateHinweis)} wurde geladen und übernommen. Von dir selbst geänderte Tarife blieben unangetastet — nichts weiter zu tun.</p></div>`;
+    html += `<div class="card alert good"><p>✓ <b>Tarife automatisch aktualisiert</b> — Preisstand ${datumDE(updateHinweis)}. Deine eigenen Änderungen blieben unangetastet.</p></div>`;
   }
   // Belegte Änderungen des letzten Updates (mit Quellen)
   if (state.aenderungsLog && state.aenderungsLog.liste && state.aenderungsLog.liste.length) {
@@ -1301,18 +1310,18 @@ function viewStart() {
       <div class="btnrow"><button class="btn small primary" data-tab="orte">Zu den Orten</button><button class="btn small" data-tab="trips">Route planen</button></div></div>`;
   }
 
-  // Statistik aus dem Lade-Logbuch (echte Zahlen statt Plan)
+  // Statistik aus dem Lade-Logbuch (echte Zahlen) — auf Abruf
   const stat = logbuchStatistik();
   if (stat) {
-    html += `<div class="card"><div class="eyebrow">Deine echten Zahlen (aus ${stat.anz} geloggten Ladungen)</div>
-      <div class="hero">
+    html += `<div class="card flat"><details class="plain"><summary>📊 Deine echten Zahlen (${stat.anz} Ladungen · ${eur(stat.eurM, 0)} diesen Monat)</summary>
+      <div class="hero" style="margin-top:10px">
         <div class="stat"><div class="v num">${eur(stat.eurM, 0)}</div><div class="l">diesen Monat (${n0(stat.kwhM)} kWh)</div></div>
         <div class="stat"><div class="v num">${stat.schnittG != null ? stat.schnittG.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "–"}<span class="unit"> €/kWh</span></div><div class="l">dein Ø-Preis gesamt</div></div>
         <div class="stat"><div class="v num">${eur(stat.ersparnisAdhoc, 0)}</div><div class="l">gespart vs. Ad-hoc (0,79 €)</div></div>
         ${stat.benzinVergleich != null ? `<div class="stat"><div class="v num">${eur(stat.benzinVergleich, 0)}</div><div class="l">gespart vs. Benziner (8 l, 1,80 €)</div></div>` : ""}
       </div>
       ${stat.verbrauchEcht != null ? `<p class="small">Echter Ø-Verbrauch aus deinen km-Angaben: <b>${n1(stat.verbrauchEcht)} kWh/100 km</b>.</p>` : ""}
-      <p class="small muted">Ladungen erfasst du unter <b>Fahren → Lade-Logbuch</b> — je mehr, desto präziser werden alle Prognosen.</p></div>`;
+    </details></div>`;
   }
 
   // Aktionen
@@ -1341,18 +1350,18 @@ function viewStart() {
     }
     html += `</ul></div>`;
   } else if (!state.settings.einfach) {
-    html += `<div class="card alert good"><h3>✅ Setup passt</h3><p>Karten und Abos entsprechen genau deinem Ladeprofil — nichts zu tun.</p></div>`;
+    html += `<div class="card alert good"><p>✅ <b>Setup passt</b> — Karten und Abos entsprechen deinem Ladeprofil, nichts zu tun.</p></div>`;
   }
 
-  // Wo lade ich wie günstig (Detail)
-  if (!state.settings.einfach) {
-    html += `<div class="card"><h2>Dein günstigster Preis je Ort</h2><div class="tblwrap"><table>
+  // Wo lade ich wie günstig — auf Abruf
+  if (!state.settings.einfach && ana.kosten.detail.length) {
+    html += `<div class="card flat"><details class="plain"><summary>💶 Günstigster Preis je Ort (Summe ${eur(ana.kosten.gesamt)})</summary><div class="tblwrap"><table>
       <tr><th>Ort</th><th>Womit</th><th class="num">Preis</th><th class="num">€/Monat</th></tr>`;
     for (const d of ana.kosten.detail) {
       html += `<tr><td>${esc(d.ort.name)}</td><td>${esc(d.tarifName)}${d.unsicher ? " ⚠" : ""}</td><td class="num">${ct(d.preis)}</td><td class="num">${eur(d.kosten)}</td></tr>`;
     }
     html += `<tr class="best"><td colspan="3">Summe (+ ${eur(ana.kosten.grund)} Abos)</td><td class="num">${eur(ana.kosten.gesamt)}</td></tr></table></div>
-      <p class="small">⚠ = Preis variiert je Säule/Uhrzeit — vor dem Laden in der App prüfen.</p></div>`;
+      <p class="small muted">⚠ = Preis variiert je Säule/Uhrzeit.</p></details></div>`;
   }
 
   // Nächster Trip
@@ -1364,34 +1373,34 @@ function viewStart() {
       <div class="btnrow"><button class="btn small primary" data-tab="trips">Zum Trip-Planer</button></div></div>`;
   }
 
-  html += `<div class="card flat"><h2>Daten &amp; Updates</h2>
-    <p class="small">🔄 <b>Tarife aktualisieren sich von selbst:</b> Die Cloud recherchiert <b>jeden Montag</b> alle Preise neu, und die App übernimmt neue Stände bei jedem Öffnen automatisch (aktueller Stand: <b>${datumDE(state.settings.preiseGeprueft)}</b>). Mit dem Knopf kannst du jederzeit sofort nachsehen.</p>
+  html += `<div class="card flat"><details class="plain"><summary>⚙️ Daten, Updates &amp; Sicherung <span class="muted">(Preisstand ${datumDE(state.settings.preiseGeprueft)} — aktualisiert sich montags von selbst)</span></summary>
     <div class="btnrow">
       <button class="btn small primary" data-action="update-check">🔄 Nach neuen Daten suchen</button>
-      <button class="btn small" data-action="recherche-start">🔬 Komplette Neu-Recherche anstoßen</button>
+      <button class="btn small" data-action="recherche-start">🔬 Neu-Recherche anstoßen</button>
       ${updateCheck === "läuft" ? '<span class="pill">⏳ prüfe Quellen …</span>' : ""}
       ${updateCheck === "aktuell" ? '<span class="pill good">✓ Alles aktuell</span>' : ""}
+      ${iBtn("upd-hilfe")}
     </div>
-    <p class="small muted">„Suchen“ = prüft in Sekunden, ob die Cloud neue Daten bereitgelegt hat. „Neu-Recherche“ = weckt die Cloud wirklich auf (Gemini recherchiert frisch, ~2–3 min; braucht einmalig ein GitHub-Token unter „Erweitert“ — oder du klickst auf <a href="https://github.com/Mintberry1628/ladekarten-checker/actions" target="_blank" rel="noopener">GitHub → Run workflow</a>).</p>
+    ${iBox("upd-hilfe", `„Suchen“ prüft in Sekunden, ob die Cloud neue Daten bereitgelegt hat. „Neu-Recherche“ weckt die Cloud wirklich auf (Gemini recherchiert frisch, ~2–3 min; braucht einmalig ein GitHub-Token unter „Erweitert“ — oder <a href="https://github.com/Mintberry1628/ladekarten-checker/actions" target="_blank" rel="noopener">GitHub → Run workflow</a>). Geprüft werden Preise, Kartengebühren, Aktionen und Bestell-Links.`)}
     <hr class="divider">
-    <p class="small">Deine Eingaben liegen nur lokal auf diesem Gerät. Für dein zweites Gerät (PC ↔ Handy): exportieren &amp; dort importieren.</p>
     <div class="btnrow">
       <button class="btn small" data-action="export">⬇ Daten exportieren</button>
       <button class="btn small" data-action="import">⬆ Daten importieren</button>
-      <button class="btn small" data-action="preise-ok">✓ Preise geprüft (${datumDE(state.settings.preiseGeprueft)})</button>
+      <button class="btn small" data-action="preise-ok">✓ Preise geprüft</button>
       <button class="btn small danger" data-action="reset">Zurücksetzen</button>
     </div>
+    <p class="small muted">Deine Eingaben liegen nur lokal auf diesem Gerät — fürs zweite Gerät: exportieren &amp; dort importieren.</p>
     <hr class="divider">
-    <p class="small">☁ <b>Profil-Sicherung auf deinem Pi</b> — jeder Nutzer sichert unter eigenem Namen (Einrichtung: Wissen → Profil-Sicherung).</p>
     <div class="frow" style="align-items:flex-end">
-      <div><label class="f">Profilname (z. B. nino)</label><input type="text" data-sfeldtext="profilName" value="${esc(state.settings.profilName)}" placeholder="nino"></div>
+      <div><label class="f">☁ Pi-Profil (z. B. nino)</label><input type="text" data-sfeldtext="profilName" value="${esc(state.settings.profilName)}" placeholder="nino"></div>
       <div><button class="btn small" data-action="profil-sichern" style="width:100%">☁⬆ Auf Pi sichern</button></div>
       <div><button class="btn small" data-action="profil-laden" style="width:100%">☁⬇ Vom Pi laden</button></div>
     </div>
+    <p class="small muted">Jeder Nutzer sichert unter eigenem Namen — Einrichtung: Wissen → Profil-Sicherung.</p>
     <hr class="divider">
     <label style="display:flex;gap:10px;align-items:center;cursor:pointer">
       <input type="checkbox" data-scheck="einfach" ${state.settings.einfach ? "checked" : ""}>
-      <span><b>Einfacher Modus</b> — nur Start, Fahren &amp; Wissen anzeigen (z. B. wenn du die App weitergibst)</span>
+      <span><b>Einfacher Modus</b> — nur Start, Fahren &amp; Wissen (z. B. wenn du die App weitergibst)</span>
     </label>
     <details class="plain"><summary>Erweitert: Update-Quelle, Neu-Recherche-Token &amp; Selbsttest</summary>
       <label class="f">URL zur tarife.json auf deinem Server</label>
@@ -1403,6 +1412,7 @@ function viewStart() {
       <div class="btnrow"><button class="btn small" data-action="selbsttest">🩺 Selbsttest: Sind alle Dienste erreichbar?</button></div>
       <ul class="clean" id="selbsttest-out"></ul>
     </details>
+    </details>
     <input type="file" id="importfile" accept=".json" class="hidden"></div>`;
   return html;
 }
@@ -1410,8 +1420,8 @@ function viewStart() {
 /* ---------- Orte ---------- */
 function viewOrte() {
   let html = `<h1>Deine Ladeorte</h1>
-  <p class="small">Trag ein, wo du regelmäßig lädst und wie viel — am einfachsten in <b>vollen Akkuladungen pro Monat</b> (die App rechnet das in kWh um). Mit einer <b>Adresse</b> (wie bei Google Maps) findet dir die App auf Knopfdruck die Säulen an diesem Ort.
-  Faustregel: dein #5 braucht ca. <b>${n1((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2)} kWh/100 km</b> im Alltag — 1.000 km/Monat ≈ ${n0(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10)} kWh ≈ ${(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10 / state.fahrzeug.akkuNetto).toLocaleString("de-DE", { maximumFractionDigits: 1 })} volle Akkus.</p>`;
+  <p class="small">Wo lädst du regelmäßig — und wie viel? ${iBtn("orte-hilfe")}</p>
+  ${iBox("orte-hilfe", `Am einfachsten in <b>vollen Akkuladungen pro Monat</b> denken: 1 voller Akku = <b>${state.fahrzeug.akkuNetto} kWh</b> bei deinem #5, halbe Ladungen sind ok (z. B. 1,5) — das kWh-Feld rechnet automatisch mit. Faustregel: 1.000 km/Monat ≈ ${n0(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10)} kWh ≈ ${(((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2) * 10 / state.fahrzeug.akkuNetto).toLocaleString("de-DE", { maximumFractionDigits: 1 })} volle Akkus. Mit einer Adresse (wie bei Google Maps) findet dir die App per Knopf die Säulen am Ort. Aus allem entstehen Empfehlungen &amp; Break-even.`)}`;
   for (const ort of state.orte) {
     const b = besterPreis(ort.netz, ort.art, null);
     html += `<div class="card" data-ort="${ort.id}">
@@ -1425,7 +1435,6 @@ function viewOrte() {
         <div><label class="f">Volle Akkus / Monat</label><input type="number" min="0" step="0.5" data-ofeld="ladungen" value="${ort.kwhMonat ? Math.round(ort.kwhMonat / state.fahrzeug.akkuNetto * 10) / 10 : 0}"></div>
         <div><label class="f">…oder kWh / Monat</label><input type="number" min="0" step="5" data-ofeld="kwhMonat" value="${ort.kwhMonat}"></div>
       </div>
-      <p class="small muted">1 voller Akku = <b>${state.fahrzeug.akkuNetto} kWh</b> bei deinem #5 — halbe Ladungen sind ok (z. B. 1,5). Egal welches Feld du füllst, das andere rechnet automatisch mit.</p>
       <div class="frow" style="align-items:flex-end">
         <div style="flex:3 1 220px"><label class="f">Adresse (optional, wie bei Google Maps)</label><input type="text" data-ofeld="adresse" value="${esc(ort.adresse || "")}" placeholder="z. B. Musterstr. 12, München"></div>
         <div style="flex:1 1 160px"><button class="btn small" data-action="ort-saeulen" data-id="${ort.id}" style="width:100%">📍 Säulen dort zeigen</button></div>
@@ -1434,14 +1443,14 @@ function viewOrte() {
     </div>`;
   }
   html += `<div class="btnrow"><button class="btn primary" data-action="ort-neu">+ Ort hinzufügen</button></div>
-  <div class="card flat"><h3>Einstellungen</h3>
+  <div class="card flat"><details class="plain"><summary>⚙️ Annahmen (Steckdosen-Preis, Verbrauch, Winter-Zuschlag)</summary>
     <div class="frow">
       <div><label class="f">Strompreis an der Steckdose (€/kWh)</label><input type="number" step="0.01" min="0" data-sfeld="schukoPreis" value="${state.settings.schukoPreis}"></div>
       <div><label class="f">Verbrauch Autobahn 130 (kWh/100 km)</label><input type="number" step="0.5" min="10" data-ffeld="verbrauchAB" value="${state.fahrzeug.verbrauchAB}"></div>
       <div><label class="f">Winter-Zuschlag (%)</label><input type="number" step="1" min="0" data-ffeld="winterZuschlag" value="${state.fahrzeug.winterZuschlag}"></div>
     </div>
     <p class="small">Fahrzeug: ${esc(state.fahrzeug.name)} — ${state.fahrzeug.akkuNetto} kWh netto, DC bis ${state.fahrzeug.dcMax} kW (10→80 % ≈ 18 min), AC ${state.fahrzeug.acMax} kW.</p>
-  </div>`;
+  </details></div>`;
   return html;
 }
 
@@ -1449,14 +1458,14 @@ function viewOrte() {
 function viewTarife() {
   const c = breakEvenChart(state.chartKontext);
   let html = `<h1>Tarife &amp; Break-even</h1>
-  <div class="card"><h2>Ab wann lohnt sich welches Abo?</h2>
+  <div class="card"><h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
+    ${iBox("be-hilfe", "Jede Linie = ein Tarif (Grundgebühr + kWh-Preis). Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo. Mit dem Finger über das Diagramm fahren zeigt Preise je Lademenge.")}
     <label class="f">Situation wählen</label>
     <select id="chartctx">${CHART_KONTEXTE.map(k => `<option value="${k.id}" ${k.id === state.chartKontext ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select>
     <div class="chartbox" id="chartbox">${c.svg}<div class="charttip" id="charttip"></div></div>
     <div class="legend">${c.legende}</div>
     ${c.beListe && c.beListe.length ? `<ul class="clean" style="margin-top:8px">${c.beListe.map(b =>
       `<li class="small"><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${b.farbe};margin-right:6px"></span>${esc(b.text)}</li>`).join("")}</ul>` : ""}
-    <p class="small">Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo.</p>
     <details><summary>Zahlen als Tabelle</summary>${c.tabelle}</details>
   </div>`;
 
@@ -1474,10 +1483,14 @@ function viewTarife() {
         <div class="meta">${t.basisEmpfehlung ? '<span class="pill good">Basis-Setup</span>' : ""}${hat ? `<span class="pill acc">${kat === "abo" ? "Abo aktiv" : "Hab ich"}</span>` : ""}<span class="pill">${esc(t.medium)}</span><span class="pill">${esc(t.laender)}</span>${t.preisVariabel ? '<span class="pill warn">Preis je Säule</span>' : ""}</div>
         <div class="meta">${pReihe}${roam}</div>
         ${t.voraussetzung ? `<p class="small">⚠️ ${esc(t.voraussetzung)}</p>` : ""}
-        <p class="small">${esc(t.hinweis || "")}</p>
-        <p class="small muted">💳 Beschaffung: ${esc(kartenKostenText(t))}${kat === "abo" ? ` · Bindung: ${esc(t.bindung || "monatlich kündbar")}` : ""}${tarifAktion(t) ? ` · <b style="color:var(--warn)">🏷 ${esc(tarifAktion(t).text)} (bis ${datumDE(tarifAktion(t).bis)})</b>` : ""}</p>
-        ${t.blockier ? `<p class="small muted">Standzeit: ${esc(t.blockier)}</p>` : ""}
-        ${t.jahresAlternative ? `<p class="small muted">Alternative: ${esc(t.jahresAlternative)}</p>` : ""}
+        ${tarifAktion(t) ? `<p class="small"><b style="color:var(--warn)">🏷 ${esc(tarifAktion(t).text)} (bis ${datumDE(tarifAktion(t).bis)})</b></p>` : ""}
+        <details class="plain"><summary>Konditionen &amp; Details</summary>
+          <p class="small">${esc(t.hinweis || "")}</p>
+          <p class="small muted">💳 Beschaffung: ${esc(kartenKostenText(t))}${kat === "abo" ? ` · Bindung: ${esc(t.bindung || "monatlich kündbar")}` : ""}</p>
+          ${t.blockier ? `<p class="small muted">Standzeit: ${esc(t.blockier)}</p>` : ""}
+          ${t.jahresAlternative ? `<p class="small muted">Alternative: ${esc(t.jahresAlternative)}</p>` : ""}
+          ${t.bestellLink ? `<p class="small"><a href="${esc(t.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter — bestellen / Preis gegenprüfen</a></p>` : ""}
+        </details>
         <div class="btnrow">
           <button class="btn small ${hat ? "" : "primary"}" data-action="${kat === "abo" ? (hat ? "abo-aus" : "abo-an") : (hat ? "karte-weg" : "karte-da")}" data-id="${t.id}">${kat === "abo" ? (hat ? "Als gekündigt markieren" : "Als abonniert markieren") : (hat ? "Hab ich doch nicht" : "Hab ich / eingerichtet")}</button>
           <button class="btn small ghost" data-action="tarif-edit" data-id="${t.id}">Preise ändern</button>
@@ -1505,8 +1518,8 @@ function viewTarife() {
 /* ---------- Trips ---------- */
 function viewTrips() {
   let html = `<h1>Trips &amp; Routen</h1>
-  <div class="card"><h2>🗺 Route planen</h2>
-    <p class="small">Start und Ziel eingeben — die App berechnet die echte Straßenroute, erkennt die Länder, setzt Ladestopps passend zu deinem #5 (konservativ, beladen gerechnet) und empfiehlt unten im Trip die günstigste Karten-Kombi für genau diese Fahrt.</p>
+  <div class="card"><h2>🗺 Route planen ${iBtn("planer-hilfe")}</h2>
+    ${iBox("planer-hilfe", "Start und Ziel reichen — die App berechnet die echte Straßenroute, erkennt die Länder, setzt Ladestopps passend zu deinem #5 (konservativ &amp; beladen gerechnet) und empfiehlt die günstigste Karten-Kombi für genau diese Fahrt. Adressen mit ☆ als Favoriten speichern.")}
     <div class="frow">
       <div style="flex:2 1 180px"><label class="f">Start (Adresse/Ort)</label><input type="text" id="route-start" placeholder="z. B. Musterstr. 1, München" value="${esc(state.planer.start)}"></div>
       <div style="flex:2 1 180px"><label class="f">Ziel (Adresse/Ort)</label><input type="text" id="route-ziel" placeholder="z. B. Fojnica, Bosnien" value="${esc(state.planer.ziel)}"></div>
@@ -1528,6 +1541,10 @@ function viewTrips() {
         <div><label class="f">Winter?</label><select data-fahrt="winter"><option value="" ${!state.fahrt.winter ? "selected" : ""}>Nein</option><option value="1" ${state.fahrt.winter ? "selected" : ""}>Ja</option></select></div>
         <div><label class="f">Voll beladen?</label><select data-scheckSel="beladen"><option value="1" ${state.settings.beladen ? "selected" : ""}>Ja (+${state.fahrzeug.beladenZuschlag} %)</option><option value="" ${!state.settings.beladen ? "selected" : ""}>Nein</option></select></div>
       </div>
+      <label style="display:flex;gap:10px;align-items:center;cursor:pointer;margin-top:12px">
+        <input type="checkbox" data-scheck="nurMeineKarten" ${state.settings.nurMeineKarten ? "checked" : ""}>
+        <span class="small">Nur Karten/Abos einplanen, <b>die ich schon habe</b> (unter Tarife markiert)</span>
+      </label>
     </details>
     <div class="btnrow"><button class="btn primary" data-action="route-planen" ${routeStatus && !routeStatus.startsWith("fehler:") ? "disabled" : ""}>${routeStatus && !routeStatus.startsWith("fehler:") ? "⏳ Berechnung läuft …" : "Route berechnen"}</button></div>
     ${routeStatus && !routeStatus.startsWith("fehler:") ? `<div class="card flat alert info" style="margin-top:8px"><p><b>⏳ ${esc(routeStatus)}</b><br><span class="small">Dauert insgesamt ~20–40 Sek. (Karten-Dienste erlauben nur 1 Anfrage/Sek.) — du kannst währenddessen einfach warten, die Seite springt nicht mehr.</span></p></div>` : ""}
@@ -1535,58 +1552,13 @@ function viewTrips() {
     ${state.planer.alts && state.planer.alts.length > 1 ? `<p class="small" style="margin-top:8px"><b>Alternative Routen:</b> ${state.planer.alts.map(a =>
       `<button class="btn small ${a.i === state.planer.altGewaehlt ? "primary" : ""}" data-action="route-alt" data-i="${a.i}">Route ${a.i + 1}: ${n0(a.km)} km, ${Math.floor(a.min / 60)}:${String(a.min % 60).padStart(2, "0")} h</button>`).join(" ")}</p>` : ""}
     ${!(state.settings.ocmKey || "").trim() ? '<p class="small" style="color:var(--warn)">Hinweis: Ohne OpenChargeMap-Key (unter <b>Fahren</b> eintragen) werden Stopp-Positionen geplant, aber keine konkreten Säulen vorgeschlagen.</p>' : ""}
-  </div>
-  <div class="card flat"><label style="display:flex;gap:10px;align-items:center;cursor:pointer">
-    <input type="checkbox" data-scheck="nurMeineKarten" ${state.settings.nurMeineKarten ? "checked" : ""}>
-    <span>Nur Karten/Abos einplanen, <b>die ich schon habe</b> (unter Tarife als „Hab ich“/„abonniert“ markiert)</span>
-  </label></div>`;
+  </div>`;
   for (const trip of state.trips) {
     const ana = tripAnalyse(trip);
     const cl = tripCheckliste(trip, ana);
     const maxK = Math.max(...ana.kandidaten.map(k => k.kosten));
-    html += `<div class="card" data-trip="${trip.id}">
-      <h2>🧭 ${esc(trip.ziel)}</h2>
-      <p class="small">Werte anpassen und dann <b>„Neu berechnen“</b> drücken — während der Eingabe rechnet nichts dazwischen.</p>
-      <div class="frow">
-        <div><label class="f">Entfernung einfach (km)</label><input type="number" min="0" data-trfeld="hinKm" value="${trip.hinKm}"></div>
-        <div><label class="f">Abfahrtsdatum</label><input type="date" data-trfeld="datum" value="${esc(trip.datum || "")}"></div>
-        <div><label class="f">Rückreisedatum</label><input type="date" data-trfeld="rueckDatum" value="${esc(trip.rueckDatum || "")}"></div>
-        <div><label class="f">…oder Tage vor Ort</label><input type="number" min="0" data-trfeld="tageVorOrt" value="${trip.tageVorOrt}"></div>
-        <div><label class="f">km vor Ort</label><input type="number" min="0" step="25" data-trfeld="kmVorOrt" value="${trip.kmVorOrt}"></div>
-        <div><label class="f">Laden am Ziel</label><select data-trfeld="zielLaden">
-          <option value="schuko" ${trip.zielLaden === "schuko" ? "selected" : ""}>Steckdose/Notlader</option>
-          ${NETZE.filter(n => n.id !== "schuko").map(n => `<option value="${n.id}" ${trip.zielLaden === n.id ? "selected" : ""}>${esc(n.kurz)}</option>`).join("")}
-          <option value="" ${!trip.zielLaden ? "selected" : ""}>Kein Laden am Ziel</option></select></div>
-        <div><label class="f">Kälte-Zuschlag</label><select data-trfeld="kaelte">
-          <option value="auto" ${(trip.kaelte || "auto") === "auto" ? "selected" : ""}>Automatisch (Wetter)</option>
-          <option value="an" ${trip.kaelte === "an" ? "selected" : ""}>An (+${state.fahrzeug.winterZuschlag} %)</option>
-          <option value="aus" ${trip.kaelte === "aus" ? "selected" : ""}>Aus</option></select></div>
-      </div>
-      <div class="btnrow"><button class="btn primary small" data-action="trip-calc">🔄 Neu berechnen</button>
-        ${trip.startCoord ? `<a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${trip.startCoord.lat},${trip.startCoord.lng}&destination=${trip.zielCoord.lat},${trip.zielCoord.lng}${trip.stopps && trip.stopps.length ? "&waypoints=" + trip.stopps.map(s => s.lat + "," + s.lng).join("%7C") : ""}">🗺 Ganze Route mit Stopps in Google Maps</a>` : ""}
-      </div>
-      ${trip.routeNotiz ? `<p class="small" style="margin-top:8px">🗺 ${esc(trip.routeNotiz)}</p>` : ""}
-
-      <hr class="divider">
-      <div class="hero">
-        <div class="stat"><div class="v num">${ana.stopsProRichtung}<span class="unit"> Stopps</span></div><div class="l">pro Richtung (à ~${n0(ladezeitMin(10, 80))} min, gesamt ~${n0(ana.stopsProRichtung * ladezeitMin(10, 80))} min Ladezeit)</div></div>
-        <div class="stat"><div class="v num">${n0(ana.dcUnterwegs)}<span class="unit"> kWh</span></div><div class="l">Schnellladen unterwegs (hin+zurück)</div></div>
-        <div class="stat"><div class="v num">${eur(ana.gesamt, 0)}</div><div class="l">Stromkosten gesamt (${n0(ana.gesamtKm)} km)</div></div>
-      </div>
-      <p class="small">Rechnung: ${n1(ana.vAB)} kWh/100 km bei ~130 km/h${state.settings.beladen ? " · beladen" : ""} · ${esc(kaelteText(trip))} · volle Ladung reicht ${n0(ana.kmVoll)} km, Folge-Etappen (80→${state.settings.ankunftSoc} %) ${n0(ana.kmHub)} km · vor Ort ${n0(ana.kWhVorOrt)} kWh über ${esc(ana.vorOrtName)} (${ct(ana.vorOrtPreis)})${trip.hoehe ? ` · Höhenprofil +${n0(trip.hoehe.aufstieg)}/−${n0(trip.hoehe.abstieg)} m eingerechnet` : ""}.</p>
-
-      ${trip.stopps && trip.stopps.length ? `
-      <h3 style="margin-top:14px">⚡ Ladestopp-Plan (Hinfahrt)</h3>
-      ${routeSchema(trip)}
-      ${routeKarte(trip)}
-      <p class="small">${trip.fahrzeitMin ? `Reine Fahrzeit ~${Math.floor(trip.fahrzeitMin / 60)} h ${Math.round(trip.fahrzeitMin % 60)} min + ~${n0(trip.stopps.reduce((s, x) => s + (x.ladeMin || 0), 0))} min Laden. ` : ""}Ankunft am Ziel mit ca. ${trip.ankunftFinal != null ? trip.ankunftFinal : "–"} % Akku. Jeden Stopp im Auto-Navi als Ziel setzen (→ Vorkonditionierung!): einfach <b>Teilen → Hello smart</b>.</p>
-      ${trip.stopps.map((st, i) => stoppCard(st, i, trip.id)).join("")}
-      <p class="small muted">Rückfahrt: gleiche Logik in Gegenrichtung — vor Abfahrt am Ziel wieder vollladen. Positionen sind Planwerte; unterwegs zeigt dir der Fahrmodus jederzeit Alternativen.</p>` : ""}
-
-      <h3 style="margin-top:14px">💳 Ladekarten-Empfehlung für diese Fahrt</h3>
-      <p class="small">Was kostet das Schnellladen unterwegs (${n0(ana.dcUnterwegs)} kWh) je Karte/App? <b>Antippen zum Aufklappen</b> — mit Rechenweg, Länder-Check und Bestell-Link. Nochmal antippen schließt wieder. Ein Abo empfiehlt die App nur, wenn es MIT Grundgebühr günstiger ist als die beste kostenlose Variante.</p>
-      <div class="hbars">
-        ${ana.kandidaten.map((k, i) => `<details class="strategie">
+    // Eine Empfehlungs-Zeile (aufklappbar mit Rechenweg, Länder-Check, Link)
+    const empZeile = (k, i) => `<details class="strategie">
           <summary><div class="hbar ${i === 0 ? "best" : ""}">
             <div class="top"><span>${i === 0 ? "⭐ " : ""}${esc(k.label)}${k.unsicher ? " ⚠" : ""}${i === 0 ? " — Empfehlung" : ""}</span><span class="val">${eur(k.kosten, 0)}</span></div>
             <div class="track"><div class="fill" style="width:${Math.max(3, k.kosten / maxK * 100)}%"></div></div>
@@ -1605,11 +1577,55 @@ function viewTrips() {
             ${k.tarif.hinweis ? `<p class="small muted">${esc(k.tarif.hinweis)}</p>` : ""}
             ${k.tarif.bestellLink ? `<div class="btnrow"><a class="btn small primary" href="${esc(k.tarif.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter — bestellen / Preis gegenprüfen</a></div>` : ""}
           </div>
-        </details>`).join("")}
+        </details>`;
+    html += `<div class="card" data-trip="${trip.id}">
+      <h2>🧭 ${esc(trip.ziel)}</h2>
+      <details class="plain"><summary>✏️ Reisedaten ändern (Datum, Tage vor Ort, km, Laden am Ziel …)</summary>
+      <div class="frow">
+        <div><label class="f">Entfernung einfach (km)</label><input type="number" min="0" data-trfeld="hinKm" value="${trip.hinKm}"></div>
+        <div><label class="f">Abfahrtsdatum</label><input type="date" data-trfeld="datum" value="${esc(trip.datum || "")}"></div>
+        <div><label class="f">Rückreisedatum</label><input type="date" data-trfeld="rueckDatum" value="${esc(trip.rueckDatum || "")}"></div>
+        <div><label class="f">…oder Tage vor Ort</label><input type="number" min="0" data-trfeld="tageVorOrt" value="${trip.tageVorOrt}"></div>
+        <div><label class="f">km vor Ort</label><input type="number" min="0" step="25" data-trfeld="kmVorOrt" value="${trip.kmVorOrt}"></div>
+        <div><label class="f">Laden am Ziel</label><select data-trfeld="zielLaden">
+          <option value="schuko" ${trip.zielLaden === "schuko" ? "selected" : ""}>Steckdose/Notlader</option>
+          ${NETZE.filter(n => n.id !== "schuko").map(n => `<option value="${n.id}" ${trip.zielLaden === n.id ? "selected" : ""}>${esc(n.kurz)}</option>`).join("")}
+          <option value="" ${!trip.zielLaden ? "selected" : ""}>Kein Laden am Ziel</option></select></div>
+        <div><label class="f">Kälte-Zuschlag</label><select data-trfeld="kaelte">
+          <option value="auto" ${(trip.kaelte || "auto") === "auto" ? "selected" : ""}>Automatisch (Wetter)</option>
+          <option value="an" ${trip.kaelte === "an" ? "selected" : ""}>An (+${state.fahrzeug.winterZuschlag} %)</option>
+          <option value="aus" ${trip.kaelte === "aus" ? "selected" : ""}>Aus</option></select></div>
       </div>
+      <p class="small muted">Nach Änderungen unten auf „Neu berechnen“ drücken — während der Eingabe rechnet nichts dazwischen.</p>
+      </details>
+      <div class="btnrow"><button class="btn primary small" data-action="trip-calc">🔄 Neu berechnen</button>
+        ${trip.startCoord ? `<a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${trip.startCoord.lat},${trip.startCoord.lng}&destination=${trip.zielCoord.lat},${trip.zielCoord.lng}${trip.stopps && trip.stopps.length ? "&waypoints=" + trip.stopps.map(s => s.lat + "," + s.lng).join("%7C") : ""}">🗺 Ganze Route mit Stopps in Google Maps</a>` : ""}
+      </div>
+      <hr class="divider">
+      <div class="hero">
+        <div class="stat"><div class="v num">${ana.stopsProRichtung}<span class="unit"> Stopps</span></div><div class="l">pro Richtung (à ~${n0(ladezeitMin(10, 80))} min, gesamt ~${n0(ana.stopsProRichtung * ladezeitMin(10, 80))} min Ladezeit)</div></div>
+        <div class="stat"><div class="v num">${n0(ana.dcUnterwegs)}<span class="unit"> kWh</span></div><div class="l">Schnellladen unterwegs (hin+zurück)</div></div>
+        <div class="stat"><div class="v num">${eur(ana.gesamt, 0)}</div><div class="l">Stromkosten gesamt (${n0(ana.gesamtKm)} km)</div></div>
+      </div>
+      <p class="small">${iBtn("trip-rechnung-" + trip.id)} <span class="muted">Wie wurde gerechnet?</span></p>
+      ${iBox("trip-rechnung-" + trip.id, `${trip.routeNotiz ? "🗺 " + esc(trip.routeNotiz) + "<br><br>" : ""}${n1(ana.vAB)} kWh/100 km bei ~130 km/h${state.settings.beladen ? " · beladen" : ""} · ${esc(kaelteText(trip))} · volle Ladung reicht ${n0(ana.kmVoll)} km, Folge-Etappen (80→${state.settings.ankunftSoc} %) ${n0(ana.kmHub)} km · vor Ort ${n0(ana.kWhVorOrt)} kWh über ${esc(ana.vorOrtName)} (${ct(ana.vorOrtPreis)})${trip.hoehe ? ` · Höhenprofil +${n0(trip.hoehe.aufstieg)}/−${n0(trip.hoehe.abstieg)} m eingerechnet` : ""}.`)}
+
+      ${trip.stopps && trip.stopps.length ? `
+      <h3 style="margin-top:14px">⚡ Ladestopp-Plan (Hinfahrt)</h3>
+      ${routeSchema(trip)}
+      ${routeKarte(trip)}
+      <p class="small">${trip.fahrzeitMin ? `Reine Fahrzeit ~${Math.floor(trip.fahrzeitMin / 60)} h ${Math.round(trip.fahrzeitMin % 60)} min + ~${n0(trip.stopps.reduce((s, x) => s + (x.ladeMin || 0), 0))} min Laden. ` : ""}Ankunft am Ziel mit ca. <b>${trip.ankunftFinal != null ? trip.ankunftFinal : "–"} % Akku</b>.</p>
+      ${tipp("navi-teilen", `<p>💡 <b>Stopps ans Auto schicken:</b> Bei jedem Stopp <b>📤 Teilen → Hello smart</b> antippen — der #5 heizt den Akku dann rechtzeitig vor (volle Ladeleistung). Rückfahrt: gleiche Logik in Gegenrichtung, am Ziel vorher vollladen.</p>`)}
+      ${trip.stopps.map((st, i) => stoppCard(st, i, trip.id)).join("")}` : ""}
+
+      <h3 style="margin-top:14px">💳 Ladekarten-Empfehlung für diese Fahrt ${iBtn("emp-hilfe")}</h3>
+      ${iBox("emp-hilfe", `Verglichen werden die ${n0(ana.dcUnterwegs)} kWh Schnellladen unterwegs (hin + zurück). Ein Abo empfiehlt die App nur, wenn es MIT Grundgebühr günstiger ist als die beste kostenlose Variante. Jede Zeile lässt sich antippen: Rechenweg, Länder-Check und Bestell-Link — nochmal antippen schließt.`)}
+      <div class="hbars">${ana.kandidaten.slice(0, 3).map((k, i) => empZeile(k, i)).join("")}</div>
+      ${ana.kandidaten.length > 3 ? `<details class="plain"><summary>Alle ${ana.kandidaten.length} Optionen vergleichen</summary><div class="hbars">${ana.kandidaten.slice(3).map((k, i) => empZeile(k, i + 3)).join("")}</div></details>` : ""}
       ${landBesteText(trip, ana)}
       ${ana.tipp ? `<p class="small" style="color:var(--warn)">💡 Ohne den „Nur meine Karten“-Filter wäre günstiger: <b>${esc(ana.tipp.label)}</b> (${eur(ana.tipp.kosten, 0)}) — die Karte/das Abo fehlt dir noch.</p>` : ""}
-      ${ana.best ? `<div class="calcbox">
+      ${ana.best ? `<details class="plain" style="margin-top:10px"><summary>💶 Gesamtkosten der Fahrt: ${eur(ana.gesamt, 0)} — kompletter Rechenweg</summary>
+      <div class="calcbox">
         <div class="line"><span><b>Empfehlung: ${esc(ana.best.label)}</b></span><span></span></div>
         ${ana.best.grund ? `<div class="line"><span>Grundgebühr (1 Monat, danach kündigen!)</span><span>${eur(ana.best.grund)}</span></div>` : ""}
         <div class="line"><span>${n0(ana.best.kwhCov)} kWh × ${ct(ana.best.preis)}</span><span>${eur(ana.best.preis * ana.best.kwhCov)}</span></div>
@@ -1619,22 +1635,26 @@ function viewTrips() {
         <div class="line"><span>+ Vollladen vor Abfahrt (~${n0(ana.kWhAbfahrt)} kWh ${esc(ana.heimBest ? ana.heimBest.name : "")})</span><span>${eur(ana.kostenAbfahrt)}</span></div>
         <div class="line"><span>+ Laden vor Ort</span><span>${eur(ana.kostenVorOrt)}</span></div>
         <div class="line total"><span>Trip gesamt (Strom)</span><span>${eur(ana.gesamt)}</span></div>
-      </div>` : ""}
+      </div>
       <p class="small">Zum Vergleich: Ein Benziner (8 l/100 km, 1,80 €/l) hätte für ${n0(ana.gesamtKm)} km ≈ ${eur(ana.gesamtKm * 0.08 * 1.8, 0)} gekostet.</p>
+      </details>` : ""}
 
-      <h3 style="margin-top:14px">Länder auf der Route</h3>
+      <details class="plain" style="margin-top:10px"><summary>🌍 Länder-Infos &amp; Maut (${trip.laender.join(", ")})</summary>
       ${trip.laender.map(l => { const L = LAENDER[l]; if (!L) return ""; return `<div class="card flat" style="margin-top:8px">
         <b>${esc(L.name)}</b>
         <p class="small">⚡ ${esc(L.laden)}</p>
         <p class="small">🅱 Plan B: ${esc(L.planB)}</p>
         ${L.extras.map(x => `<p class="small">❗ ${esc(x)}</p>`).join("")}
       </div>`; }).join("")}
+      </details>
 
-      <h3 style="margin-top:14px">✅ Vorbereitungs-Checkliste <button class="btn small ghost" data-action="trip-ics" data-id="${trip.id}" style="margin-left:8px">📅 Termine in Kalender (.ics)</button></h3>
+      <details class="plain" style="margin-top:10px"><summary>✅ Vorbereitungs-Checkliste (${cl.filter((x, i) => state.checks[trip.id + "-" + i]).length}/${cl.length} erledigt)</summary>
+      <div class="btnrow"><button class="btn small ghost" data-action="trip-ics" data-id="${trip.id}">📅 Termine in Kalender (.ics)</button></div>
       ${cl.map((item, i) => { const key = trip.id + "-" + i; const done = !!state.checks[key]; return `<div class="check ${done ? "done" : ""}">
         <input type="checkbox" id="ck-${key}" data-check="${key}" ${done ? "checked" : ""}>
         <label for="ck-${key}"><span class="when">${esc(item.when)}</span><br><span class="txt">${esc(item.text)}</span></label>
       </div>`; }).join("")}
+      </details>
       <div class="btnrow"><button class="del" data-action="trip-weg" data-id="${trip.id}">Trip entfernen</button></div>
     </div>`;
   }
@@ -1661,7 +1681,7 @@ function viewFahren() {
   const fa = state.fahrt;
   let html = `<div class="drive">
   <h1>🚗 Fahrmodus</h1>
-  <p class="small">Große Knöpfe, schnelle Antworten. <b>Nur vom Beifahrer oder im Stand bedienen.</b></p>
+  <p class="small"><b>Nur im Stand oder vom Beifahrer bedienen.</b></p>
 
   <div class="card"><h2>🔋 Wie weit komme ich noch?</h2>
     <div class="frow">
@@ -1678,8 +1698,8 @@ function viewFahren() {
       <div class="s"><div class="v num">${n1(fr.verbrauch)}</div><div class="l">kWh/100 km bei ${fa.tempo} km/h${fa.winter ? " (Winter)" : ""}</div></div>
       <div class="s"><div class="v num">${n0(fr.energie)} kWh</div><div class="l">im Akku (≈ ${n0(fr.socEff)} %)</div></div>
     </div>
-    <p class="small" style="margin-top:8px">Plane Ladestopps innerhalb der <b>sicheren</b> km. ${fa.modus === "restkm" ? "Die Anzeige-km rechnet der Bordcomputer mit Misch-Verbrauch — bei Autobahn-Tempo kommst du real weniger weit; genau das korrigiert diese Rechnung." : ""}</p>
     <details class="plain"><summary>Was heißt „SICHER“? (Reserve + Sicherheitspuffer erklärt)</summary>
+      <p class="small">Plane Ladestopps innerhalb der <b>sicheren</b> km.${fa.modus === "restkm" ? " Die Anzeige-km rechnet der Bordcomputer mit Misch-Verbrauch — bei Autobahn-Tempo kommst du real weniger weit; genau das korrigiert diese Rechnung." : ""}</p>
       <p class="small">Die App zieht von der Reichweite <b>zwei</b> Dinge ab, damit die Zahl verlässlich ist:<br>
       <b>1) Ankunfts-Reserve (${state.settings.ankunftSoc} %):</b> mit so viel Rest-Akku willst du mindestens an der Säule ankommen — falls sie besetzt oder kaputt ist, kommst du noch zur nächsten.<br>
       <b>2) Sicherheitspuffer (${state.settings.puffer} %):</b> Abzug für alles Unplanbare — Stau, Umleitung, Gegenwind, Regen, kalter Akku.<br>
@@ -1696,13 +1716,13 @@ function viewFahren() {
     </div>
     <div class="frow" style="margin-top:8px; align-items:flex-end">
       <div style="flex:3 1 180px"><label class="f">…oder Ort/Adresse</label><input type="text" id="suchadresse" placeholder="z. B. Villach" value=""></div>
-      <div style="flex:2 1 140px"><label class="f">Wunsch-Leistung</label><select data-sfeld="suchKw">
+      <div style="flex:2 1 140px"><label class="f">Wunsch-Leistung ${iBtn("wkw")}</label><select data-sfeld="suchKw">
         <option value="0" ${!state.settings.suchKw ? "selected" : ""}>egal — alles zeigen</option>
         ${[50, 150, 300, 350, 400].map(k => `<option value="${k}" ${+state.settings.suchKw === k ? "selected" : ""}>mind. ${k} kW</option>`).join("")}
       </select></div>
       <div style="flex:1 1 90px"><button class="btn" data-action="suche-adresse" style="width:100%">Suchen</button></div>
     </div>
-    <p class="small muted">Bei „egal“ zeigt dir die App den <b>nächsten Schnelllader</b> und die <b>nächste normale AC-Säule</b> zuerst. Gibt's bei dir keine 350/400er? Wunsch-Leistung einstellen — dann sucht die App automatisch in größerem Umkreis (bis 300 km) nach dem nächsten passenden.</p>
+    ${iBox("wkw", "Bei „egal“ zeigt dir die App den <b>nächsten Schnelllader</b> und die <b>nächste normale AC-Säule</b> zuerst. Gibt's bei dir keine 350/400er? Wunsch-Leistung einstellen — dann sucht die App automatisch in größerem Umkreis (bis 300 km) nach dem nächsten passenden.")}
     ${sucheStatus === "ortung" ? '<p class="small">📡 Standort wird ermittelt …</p>' : ""}
     ${sucheStatus === "lädt" ? '<p class="small">⏳ Säulen werden geladen …</p>' : ""}
     ${sucheStatus === "kein-key" ? '<p class="small" style="color:var(--warn)">Bitte erst den OpenChargeMap-Key eintragen (siehe oben).</p>' : ""}
@@ -1764,8 +1784,8 @@ function viewFahren() {
 
   // Lade-Logbuch: füttert Statistik + Kalibrierung
   const stat = logbuchStatistik();
-  html += `<div class="card" style="margin-top:12px"><h3>📓 Lade-Logbuch</h3>
-    <p class="small">30 Sekunden nach jedem Laden: Daraus lernt die App deine <b>echte</b> Ladegeschwindigkeit und deinen <b>echten</b> Verbrauch — alle Prognosen werden persönlicher. Die Startseite zeigt deine echten Kosten.</p>
+  html += `<div class="card" style="margin-top:12px"><h3>📓 Lade-Logbuch ${iBtn("logb")}</h3>
+    ${iBox("logb", "30 Sekunden nach jedem Laden eintragen: Daraus lernt die App deine <b>echte</b> Ladegeschwindigkeit und deinen <b>echten</b> Verbrauch — alle Prognosen werden persönlicher. Die Startseite zeigt deine echten Kosten.")}
     <div class="frow">
       <div><label class="f">Netz</label><select id="log-netz">${NETZE.map(n => `<option value="${n.id}" ${n.id === netz ? "selected" : ""}>${esc(n.kurz)}</option>`).join("")}</select></div>
       <div><label class="f">geladene kWh</label><input type="number" id="log-kwh" min="0" step="1" placeholder="55"></div>
@@ -1835,8 +1855,8 @@ function stationListe(suche, fr) {
   return `<p class="small" style="margin-top:10px">Ergebnis vom ${new Date(suche.zeit).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}${suche.minKw ? ` · Filter ≥ ${suche.minKw} kW · Suchradius ${suche.radius} km` : ""} (bleibt offline gespeichert):</p>` +
     top +
     mitDist.slice(0, 15).map(x => stationCard(x.st, x.d, fr)).join("") +
-    `<p class="small muted">Legende: <span class="pill good">erreichbar ✓</span> = schaffst du mit deiner Reserve (${state.settings.ankunftSoc} %) + Sicherheitspuffer (${state.settings.puffer} %) · <span class="pill warn">knapp</span> = nur erreichbar, wenn du den Puffer aufbrauchst — nicht empfohlen · <span class="pill crit">zu weit ✗</span> = reicht rechnerisch nicht.</p>
-    <p class="small muted">ℹ️ Ob gerade <b>frei oder besetzt</b> ist, geben die Betreiber leider nur in ihren eigenen Apps live frei — hier siehst du deshalb die Anzahl der Ladepunkte und den letzten gemeldeten Status samt Datum (Quelle OpenChargeMap). Live-Check kurz vor Ankunft: Betreiber-App oder <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a>/Ladefuchs.</p>`;
+    `<p class="small">${iBtn("finder-legende")} <span class="muted">Legende &amp; Live-Belegung erklärt</span></p>` +
+    iBox("finder-legende", `<span class="pill good">erreichbar ✓</span> = schaffst du mit Reserve (${state.settings.ankunftSoc} %) + Sicherheitspuffer (${state.settings.puffer} %) · <span class="pill warn">knapp</span> = nur, wenn du den Puffer aufbrauchst — nicht empfohlen · <span class="pill crit">zu weit ✗</span> = reicht rechnerisch nicht.<br><br>Ob gerade <b>frei oder besetzt</b> ist, geben die Betreiber nur in ihren eigenen Apps live frei — hier siehst du die Anzahl der Ladepunkte und den letzten gemeldeten Status samt Datum (Quelle OpenChargeMap). Live-Check kurz vor Ankunft: Betreiber-App oder <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a>/Ladefuchs.`);
 }
 function findeStation(id) {
   if (state.letzteSuche) { const s = state.letzteSuche.stationen.find(x => x.id === id); if (s) return s; }
@@ -1865,8 +1885,7 @@ function routeSchema(trip) {
     s += `<text x="${X(st.posKm)}" y="${oben ? y - 15 : y + 37}" text-anchor="middle" font-size="9.5" fill="var(--muted)">${st.kw ? Math.round(st.kw) + " kW" : "keine Säule!"} · ${st.ladeMin} min</text>`;
   });
   s += `</svg>`;
-  return `<div class="chartbox">${s}</div>
-    <p class="small muted">🟢 Schnelllader (≥ 150 kW) · 🟡 langsamer Lader · 🔴 keine Säule gefunden — Punkte 1–${trip.stopps.length} entsprechen der Liste unten.</p>`;
+  return `<div class="chartbox">${s}</div>`;
 }
 
 // Echte Karten-Ansicht der Route: OpenStreetMap-Kacheln + Streckenverlauf +
@@ -1913,7 +1932,7 @@ function routeKarte(trip) {
       <span class="mapattrib">© OpenStreetMap</span>
     </div>
   </div>
-  <p class="small muted">So verläuft die Route wirklich — S = Start, Z = Ziel, Nummern = Ladestopps (grün = Schnelllader, gelb = langsamer, rot = offen). Gefällt dir der Weg nicht: oben eine Alternativ-Route wählen und neu rechnen lassen.</p>`;
+  <p class="small muted">S = Start · Z = Ziel · Stopps: 🟢 schnell (≥ 150 kW) · 🟡 langsamer · 🔴 offen. Anderer Weg gewünscht? Oben Alternativ-Route wählen.</p>`;
 }
 // Karten skalieren sich auf die Kartenbreite des Geräts
 function skaliereKarten() {
@@ -2030,6 +2049,14 @@ document.addEventListener("click", (e) => {
   if (tabBtn) { state.tab = tabBtn.dataset.tab; save(); render(); return; }
   const driveBtn = e.target.closest("[data-drive]");
   if (driveBtn) { state.driveNetz = driveBtn.dataset.drive; save(); render(); return; }
+  const infoB = e.target.closest("[data-info]");
+  if (infoB) {
+    const iid = infoB.dataset.info;
+    if (offeneInfos.has(iid)) offeneInfos.delete(iid); else offeneInfos.add(iid);
+    render(); return;
+  }
+  const tippB = e.target.closest("[data-tippweg]");
+  if (tippB) { state.hinweiseWeg[tippB.dataset.tippweg] = true; save(); render(); return; }
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const act = btn.dataset.action, id = btn.dataset.id;
