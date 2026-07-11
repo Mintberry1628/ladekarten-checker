@@ -30,20 +30,21 @@ const FAHRZEUG_DEFAULT = {
   beladenZuschlag: 8,   // % Mehrverbrauch voll beladen (Leergewicht 2.378 kg, zul. 2.880 kg)
 };
 
-/* ---------- Ladenetze (Betreiber) ---------- */
+/* ---------- Ladenetze (Betreiber) ----------
+   farbe = Markenfarbe: macht Tarife/Säulen auf einen Blick unterscheidbar */
 const NETZE = [
-  { id: "enbw",    name: "EnBW HyperNetz",        kurz: "EnBW",      typ: "AC+DC", info: "Größtes Schnellladenetz in DE, auch AT dicht abgedeckt." },
-  { id: "aral",    name: "Aral pulse",            kurz: "Aral",      typ: "DC",    info: "Schnelllader an Tankstellen, oft stadtnah." },
-  { id: "ionity",  name: "Ionity",                kurz: "Ionity",    typ: "DC",    geschlossen: true, info: "HPC direkt an Autobahnen, europaweit — Langstrecken-Standard. Nur Karten mit explizitem Ionity-Preis." },
-  { id: "tesla",   name: "Tesla Supercharger",    kurz: "Tesla",     typ: "DC",    geschlossen: true, info: "Für Fremdmarken (CCS2) geöffnet — aber NUR per Tesla-App, keine Fremd-Ladekarten." },
-  { id: "swm",     name: "SWM (Stadtwerke München)", kurz: "SWM",    typ: "AC+DC", info: "Städtische Ladesäulen in München, Ladenetz-Verbund." },
-  { id: "qwello",  name: "Qwello (München)",      kurz: "Qwello",    typ: "AC",    info: "AC-Säulen am Straßenrand in München, Start per App." },
-  { id: "lidl",    name: "Lidl / Kaufland",       kurz: "Lidl/KL",   typ: "DC",    geschlossen: true, info: "Schnelllader an Filialen — nur zu Öffnungszeiten, Start per Kaufland-App/Lidl Plus, keine Fremdkarten." },
-  { id: "aldi",    name: "Aldi Süd",              kurz: "Aldi",      typ: "AC+DC", geschlossen: true, info: "Lader an Aldi-Süd-Filialen (z. B. München-Großhadern) — nur zu Öffnungszeiten, Start per App/QR oder Girocard direkt an der Säule, keine Fremdkarten." },
-  { id: "ewego",   name: "EWE Go",                kurz: "EWE Go",    typ: "AC+DC", info: "Eigene Säulen v. a. im Nordwesten (auch NRW) + großes Roaming." },
-  { id: "dc-fremd", name: "Sonstiger Schnelllader", kurz: "Andere DC", typ: "DC",  info: "Allego, E.ON, Pfalzwerke & Co. — läuft über Roaming-Preise." },
-  { id: "ac-fremd", name: "Sonstige AC-Säule",    kurz: "Andere AC", typ: "AC",    info: "Beliebige fremde AC-Säule — läuft über Roaming-Preise." },
-  { id: "schuko",  name: "Steckdose / Notladegerät", kurz: "Steckdose", typ: "AC",  info: "Haushalts-Steckdose (Familie, Hotel) mit deinem Schuko-Ladegerät (Mode 2)." },
+  { id: "enbw",    name: "EnBW HyperNetz",        kurz: "EnBW",      typ: "AC+DC", farbe: "#F18700", info: "Größtes Schnellladenetz in DE, auch AT dicht abgedeckt." },
+  { id: "aral",    name: "Aral pulse",            kurz: "Aral",      typ: "DC",    farbe: "#0063B1", info: "Schnelllader an Tankstellen, oft stadtnah." },
+  { id: "ionity",  name: "Ionity",                kurz: "Ionity",    typ: "DC",    farbe: "#0E7C86", geschlossen: true, info: "HPC direkt an Autobahnen, europaweit — Langstrecken-Standard. Nur Karten mit explizitem Ionity-Preis." },
+  { id: "tesla",   name: "Tesla Supercharger",    kurz: "Tesla",     typ: "DC",    farbe: "#CC2B2B", geschlossen: true, info: "Für Fremdmarken (CCS2) geöffnet — aber NUR per Tesla-App, keine Fremd-Ladekarten." },
+  { id: "swm",     name: "SWM (Stadtwerke München)", kurz: "SWM",    typ: "AC+DC", farbe: "#0082C9", info: "Städtische Ladesäulen in München, Ladenetz-Verbund." },
+  { id: "qwello",  name: "Qwello (München)",      kurz: "Qwello",    typ: "AC",    farbe: "#7B4CDF", info: "AC-Säulen am Straßenrand in München, Start per App." },
+  { id: "lidl",    name: "Lidl / Kaufland",       kurz: "Lidl/KL",   typ: "DC",    farbe: "#FFD500", geschlossen: true, info: "Schnelllader an Filialen — nur zu Öffnungszeiten, Start per Kaufland-App/Lidl Plus, keine Fremdkarten." },
+  { id: "aldi",    name: "Aldi Süd",              kurz: "Aldi",      typ: "AC+DC", farbe: "#00B5E2", geschlossen: true, info: "Lader an Aldi-Süd-Filialen (z. B. München-Großhadern) — nur zu Öffnungszeiten, Start per App/QR oder Girocard direkt an der Säule, keine Fremdkarten." },
+  { id: "ewego",   name: "EWE Go",                kurz: "EWE Go",    typ: "AC+DC", farbe: "#94C11F", info: "Eigene Säulen v. a. im Nordwesten (auch NRW) + großes Roaming." },
+  { id: "dc-fremd", name: "Sonstiger Schnelllader", kurz: "Andere DC", typ: "DC",  farbe: "#8493A3", info: "Allego, E.ON, Pfalzwerke & Co. — läuft über Roaming-Preise." },
+  { id: "ac-fremd", name: "Sonstige AC-Säule",    kurz: "Andere AC", typ: "AC",    farbe: "#8493A3", info: "Beliebige fremde AC-Säule — läuft über Roaming-Preise." },
+  { id: "schuko",  name: "Steckdose / Notladegerät", kurz: "Steckdose", typ: "AC",  farbe: "#A07855", info: "Haushalts-Steckdose (Familie, Hotel) mit deinem Schuko-Ladegerät (Mode 2)." },
 ];
 
 /* ---------- Tarife / Ladekarten ----------
@@ -494,6 +495,26 @@ automation lkc:
           profil: "{{ trigger.json.profil | regex_replace('[^a-z0-9-]','') }}"
           b64: "{{ trigger.json.b64 | regex_replace('[^A-Za-z0-9+/=]','') }}"</pre>
       <p class="small">Tipp: Die <code>webhook_id</code> kannst du in einen eigenen Geheimnamen ändern — dann in der App unter dem Profilnamen-Feld dieselbe ID eintragen.</p>`
+  },
+  {
+    id: "notfall", titel: "🆘 Panne & Notfall (funktioniert offline)",
+    html: `
+      <p><b>Notruf europaweit: 112</b> (auch in Bosnien). Pannenhilfe:</p>
+      <ul class="dots">
+        <li><b>Deutschland:</b> ADAC 089 22 22 22 (auch für Nicht-Mitglieder, dann kostenpflichtig)</li>
+        <li><b>Österreich:</b> ÖAMTC <b>120</b> · ARBÖ 123</li>
+        <li><b>Slowenien:</b> AMZS <b>1987</b></li>
+        <li><b>Kroatien:</b> HAK <b>1987</b> (aus dem Ausland +385 1 1987)</li>
+        <li><b>Bosnien:</b> BIHAMK <b>1282</b> / +387 33 1282</li>
+      </ul>
+      <p><b>Wichtig beim E-Auto:</b></p>
+      <ul class="dots">
+        <li><b>Nicht mit Seil/Stange schleppen lassen!</b> Beim Rollen erzeugen die Motoren Spannung — Schäden am Antrieb. Immer <b>Plattform-Abschlepper</b> anfordern und „Elektroauto“ dazusagen.</li>
+        <li>Akku komplett leer (0 %): Auto rollt aus — Warnblinker, Warnweste, Dreieck. Manche Pannendienste haben mobile Lader; sonst Plattform zur nächsten Säule.</li>
+        <li>Nach einem Unfall mit Airbag: Abstand zum Hochvolt-System, Rettungskräfte auf E-Auto hinweisen (der #5 hat eine Rettungskarte von smart).</li>
+        <li>ADAC-Mitgliedschaft gilt europaweit (Schutzbrief prüfen — für Bosnien sinnvoll).</li>
+      </ul>
+      <p class="small">Diese Seite ist offline verfügbar — auch ohne Empfang lesbar, solange die App installiert ist.</p>`
   },
   {
     id: "preise", titel: "Preise: aktualisieren sich von selbst",

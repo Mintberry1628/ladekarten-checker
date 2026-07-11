@@ -23,7 +23,8 @@
   --s1: #2a78d6; --s2: #1baf7a; --s3: #eda100; --s4: #008300; --s5: #4a3aa7;
   --grid: rgba(19, 26, 35, 0.08);
   --shadow: 0 1px 2px rgba(10, 20, 35, 0.06), 0 4px 14px rgba(10, 20, 35, 0.06);
-  --radius: 10px;
+  --radius: 14px;
+  --tab-accent: #2A78D6; /* Bereichsfarbe — wird je Tab von der App gesetzt */
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
@@ -109,16 +110,20 @@ a { color: var(--accent); }
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 14px; }
 header.app {
   position: sticky; top: 0; z-index: 30;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--hairline);
   padding: 10px 0;
 }
+@supports not (backdrop-filter: blur(1px)) { header.app { background: var(--bg); } }
 header.app .wrap { display: flex; align-items: center; gap: 12px; }
 .logo { display: flex; align-items: center; gap: 9px; font-weight: 750; letter-spacing: -0.01em; margin-right: auto; }
 .logo .blitz {
-  width: 28px; height: 28px; border-radius: 8px; flex: none;
-  background: var(--accent); color: var(--accent-ink);
+  width: 28px; height: 28px; border-radius: 9px; flex: none;
+  background: var(--tab-accent, var(--accent)); color: var(--accent-ink);
   display: grid; place-items: center; font-size: 15px;
+  transition: background .25s ease;
 }
 .logo .sub { display: block; font-size: .7rem; font-weight: 500; color: var(--muted); letter-spacing: .02em; }
 nav.top { display: none; gap: 2px; margin-left: auto; }
@@ -129,7 +134,7 @@ nav.top button, .tabbar button {
   padding: 8px 13px; border-radius: 8px; cursor: pointer;
 }
 nav.top button:hover { background: var(--card2); }
-nav.top button.on { background: var(--accent-soft); color: var(--accent); }
+nav.top button.on { background: color-mix(in srgb, var(--tab-accent) 14%, transparent); color: var(--tab-accent); }
 .iconbtn {
   appearance: none; border: 1px solid var(--hairline); background: var(--card);
   color: var(--ink2); width: 34px; height: 34px; border-radius: 8px;
@@ -140,17 +145,20 @@ nav.top button.on { background: var(--accent-soft); color: var(--accent); }
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   display: grid; grid-template-columns: repeat(6, 1fr);
-  background: var(--card);
+  background: color-mix(in srgb, var(--card) 84%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--hairline);
   padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
 }
+@supports not (backdrop-filter: blur(1px)) { .tabbar { background: var(--card); } }
 @media (min-width: 761px) { .tabbar { display: none; } }
 .tabbar button {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   font-size: .62rem; font-weight: 600; padding: 6px 2px; color: var(--muted);
 }
 .tabbar button svg { width: 21px; height: 21px; }
-.tabbar button.on { color: var(--accent); }
+.tabbar button.on { color: var(--tab-accent, var(--accent)); }
 
 /* To-do-Zähler am Start-Tab */
 .tabbar button, nav.top button { position: relative; }
@@ -184,6 +192,24 @@ main { padding: 16px 0 30px; }
 .alert.info { border-left-color: var(--accent); background: var(--accent-soft); }
 .alert h3 { display: flex; gap: 8px; align-items: baseline; }
 
+/* ---------- Bento-Raster (Start) ---------- */
+.bento { display: grid; grid-template-columns: 1.25fr 1fr; gap: 10px; margin-top: 8px; }
+.bento .tile {
+  background: var(--card2); border-radius: 16px; padding: 14px 16px;
+  display: flex; flex-direction: column; justify-content: center; min-height: 74px;
+}
+.bento .tile.gross {
+  grid-row: span 2;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--tab-accent) 22%, var(--card2)), var(--card2) 75%);
+}
+.bento .z { font-size: 1.7rem; font-weight: 780; letter-spacing: -0.02em; line-height: 1.05; }
+.bento .tile.gross .z { font-size: 2.5rem; }
+.bento .z .unit { font-size: .95rem; font-weight: 600; color: var(--ink2); }
+.bento .l { font-size: .78rem; color: var(--ink2); margin-top: 4px; }
+
+/* ---------- Fortschritts-Ring ---------- */
+.ring { width: 110px; height: 110px; display: block; }
+
 /* ---------- Hero-Zahl ---------- */
 .hero { display: flex; flex-wrap: wrap; gap: 12px; }
 .stat { flex: 1 1 150px; }
@@ -211,7 +237,7 @@ main { padding: 16px 0 30px; }
   font-size: .92rem; font-weight: 650; padding: 9px 15px;
 }
 .btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.primary { background: var(--tab-accent, var(--accent)); color: var(--accent-ink); border-color: transparent; }
 .btn.small { font-size: .8rem; padding: 5px 10px; }
 .btn.ghost { background: none; }
 .btn.danger { color: var(--crit); }
@@ -362,6 +388,12 @@ code { background: var(--card2); border-radius: 4px; padding: 1px 5px; font-size
 .del { color: var(--crit); background: none; border: 0; cursor: pointer; font-size: .8rem; font-weight: 650; padding: 4px; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .tabpane { animation: fadein .18s ease; }
-  @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  /* Gestaffeltes Einblenden NUR beim Tab-Wechsel (.neu) — nie beim Tippen */
+  .tabpane.neu > * { animation: fadein .3s ease backwards; }
+  .tabpane.neu > *:nth-child(2) { animation-delay: .04s; }
+  .tabpane.neu > *:nth-child(3) { animation-delay: .08s; }
+  .tabpane.neu > *:nth-child(4) { animation-delay: .12s; }
+  .tabpane.neu > *:nth-child(5) { animation-delay: .16s; }
+  .tabpane.neu > *:nth-child(n+6) { animation-delay: .2s; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 }
