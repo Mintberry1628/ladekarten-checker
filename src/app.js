@@ -55,6 +55,9 @@ function defaultState() {
     aktionen: [],                        // zeitlich begrenzte Anbieter-Aktionen (aus tarife.json)
     aenderungsLog: null,                 // letzte Update-Änderungen mit Quellen
     ladeTimer: null,                     // laufender Blockiergebühr-Timer
+    timerVorschlag: null,                // letzte Timer-Dauer -> Logbuch-Vorbefüllung
+    preisAlarm: null,                    // Preisänderungen bei DEINEN Karten (aus dem Update)
+    routenVerlauf: [],                   // zuletzt geplante Strecken (eigene Historie, keine Vorgaben)
     tab: "start",
     driveNetz: "enbw",
     chartKontext: "dc-autobahn",
@@ -246,11 +249,20 @@ function aktionen(analyse) {
       acts.push({ typ: "abonnieren", tarif: t, ersparnis: a.ersparnis, breakEven: a.breakEvenKwh, vorteil: a.vorteilProKwh, kwh: a.kwhBetroffen });
     }
   }
+  // Abo-Wächter: Abos, die ein anstehender Trip noch braucht, NICHT zur Kündigung
+  // vorschlagen — sonst mit konkretem Kündigungs-Datum erinnern
+  const tripAbos = new Set();
+  for (const tr of state.trips) {
+    if (tr.datum && tr.datum < heute()) continue;
+    try { const b = tripAnalyse(tr).best; if (b && b.abo && b.tarif) tripAbos.add(b.tarif.id); } catch (e) { /* Trip unvollständig */ }
+  }
+  const monatsEnde = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
   for (const id of Object.keys(state.abos)) {
     if (!state.abos[id]) continue;
     const t = state.tarife.find(x => x.id === id);
     if (t && !analyse.abosGewaehlt.find(a => a.id === id)) {
-      acts.push({ typ: "kuendigen", tarif: t, text: `Rechnet sich bei deinem aktuellen Ladeprofil nicht — spart ${eur(t.grund)}/Monat.` });
+      if (tripAbos.has(id)) continue; // wird für einen geplanten Trip gebraucht
+      acts.push({ typ: "kuendigen", tarif: t, text: `Rechnet sich bei deinem aktuellen Ladeprofil nicht und kein geplanter Trip braucht es — spart ${eur(t.grund)}/Monat. Monatlich kündbar: am besten zum ${monatsEnde.toLocaleDateString("de-DE")}.` });
     }
   }
   return acts;
@@ -322,11 +334,18 @@ function tripAnalyse(trip) {
     const cov = d.id === "adhoc" ? 1 : deckung(d.netz);
     if (cov <= 0.05) continue;
     const kwhCov = dcUnterwegs * cov, kwhRest = dcUnterwegs - kwhCov;
+    // Blockiergebühr ehrlich einrechnen: liegt ein geplanter Stopp über der
+    // Gratis-Standzeit des Tarifs, kostet das ~0,10 €/min (hin + zurück)
+    const grenzeB = t.blockierAbMin ? t.blockierAbMin.dc : null;
+    const blockMin = (grenzeB == null || !trip.stopps) ? 0 :
+      trip.stopps.reduce((s, st) => s + Math.max(0, (st.ladeMin || 0) - grenzeB), 0) * 2;
+    const blockKosten = blockMin * 0.10;
     kandidaten.push({
       label: d.label + (cov < 0.999 ? ` — deckt ${Math.round(cov * 100)} % der Strecke, Rest über ${luecke.name.split(" ")[0]}` : ""),
       tarif: t, netz: d.netz, preis: p.preis, unsicher: p.unsicher,
       grund: (t.grund || 0) * monate, cov, kwhCov, kwhRest, lueckePreis: luecke.preis,
-      kosten: (t.grund || 0) * monate + p.preis * kwhCov + luecke.preis * kwhRest,
+      blockMin, blockKosten,
+      kosten: (t.grund || 0) * monate + p.preis * kwhCov + luecke.preis * kwhRest + blockKosten,
       abo: t.kategorie === "abo", besitzt: besitzt(t),
     });
   }
@@ -436,8 +455,10 @@ function logbuchKalibrieren() {
   const faktoren = l.filter(e => e.kwh > 5 && e.minuten > 3 && e.kwh / (e.minuten / 60) >= 50)
     .map(e => {
       const echteKw = e.kwh / (e.minuten / 60);
-      // Modell: mittlere Leistung im typischen Fenster 20->80 %
-      const modellKw = (0.6 * state.fahrzeug.akkuNetto) / ((ladezeitMin(20, 80) * (state.kalib.ladeFaktor || 1)) / 60);
+      // Mit SoC-Angaben: Modell im exakt gleichen Fenster (präziseste Kalibrierung),
+      // sonst Annahme typisches Fenster 20->80 %
+      const von = e.socVon != null ? e.socVon : 20, bis = e.socBis != null ? e.socBis : 80;
+      const modellKw = ((bis - von) / 100 * state.fahrzeug.akkuNetto) / ((ladezeitMin(von, bis) * (state.kalib.ladeFaktor || 1)) / 60);
       return echteKw / modellKw;
     });
   if (faktoren.length >= 2) {
@@ -529,7 +550,8 @@ function ladezeitMin(von, bis) {
 // eben nur mit 50 kW, egal was der Akku könnte.
 function ladezeitMitLimit(von, bis, saeuleKw) {
   const akku = state.fahrzeug.akkuNetto;
-  const limit = saeuleKw && saeuleKw > 0 ? saeuleKw : 9999;
+  // Deckel: das Minimum aus Säulen-Leistung und dem, was DEIN Auto kann (dcMax)
+  const limit = Math.min(saeuleKw && saeuleKw > 0 ? saeuleKw : 9999, state.fahrzeug.dcMax || 9999);
   let min = 0;
   for (const [s0, s1, kw] of LADEKURVE) {
     const lo = Math.max(von, s0), hi = Math.min(bis, s1);
@@ -864,8 +886,14 @@ async function routePlanen(altIndex) {
       routeNotiz: "Echte Route (" + n0(distKm) + " km, ~" + Math.floor(fahrzeitMin / 60) + " h " + Math.round(fahrzeitMin % 60) + " min reine Fahrzeit). Geplant mit " + n1(verbrauch) + " kWh/100 km bei " + state.fahrt.tempo + " km/h" + (state.settings.beladen ? ", beladen" : "") + ", Ankunft je Etappe ≥ " + state.settings.ankunftSoc + " %." + (hoehe ? " Höhenprofil: +" + n0(hoehe.aufstieg) + " m / −" + n0(hoehe.abstieg) + " m." : ""),
     });
     stoppsNeuBerechnen(trip); // rechnet zielFest (100 %-Regel) & Säulen-kW-Limits sauber ein
+    // Eigene Routen-Historie: zuletzt geplante Strecken als 1-Tipp-Chips (keine Vorgaben)
+    state.routenVerlauf = [{ start: state.planer.start, ziel: state.planer.ziel }]
+      .concat((state.routenVerlauf || []).filter(v => v.start !== state.planer.start || v.ziel !== state.planer.ziel))
+      .slice(0, 6);
     routeStatus = "";
     save(); render();
+    routeKarte(trip);                          // erzeugt die Kachel-Liste der Karte …
+    tilesCachen(routeKarte.letzteUrls || []);  // … und legt sie offline ab (Bosnien!)
     wetterHolen(trip); // asynchron, aktualisiert die Kälte-Automatik sobald da
   } catch (e) {
     routeStatus = "fehler:Planung fehlgeschlagen (" + e.message + "). Hinweis: Im claude.ai-Link sind externe Abfragen gesperrt — nutze die App über mintberry.org oder am PC.";
@@ -1027,6 +1055,41 @@ async function selbsttest() {
   ziel.innerHTML = ergebnisse.join("");
 }
 
+/* ---------- Benachrichtigung (Blockier-Timer) ----------
+   Erlaubnis wird erst beim Timer-Start erfragt (kontextbezogen, Best Practice) —
+   zuverlässig, solange die App im Hintergrund geöffnet ist. */
+async function benachrichtige(titel, text) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    const reg = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : null;
+    if (reg && reg.showNotification) reg.showNotification(titel, { body: text, tag: "lkc-timer", vibrate: [200, 100, 200] });
+    else new Notification(titel, { body: text });
+  } catch (e) { /* nicht unterstützt — die Anzeige in der App bleibt */ }
+}
+
+/* ---------- Monats-Rückblick (aus dem Logbuch) ---------- */
+function monatsReport() {
+  const l = state.logbuch;
+  if (!l.length) return null;
+  const d = new Date(); d.setDate(0);                       // letzter Tag des Vormonats
+  const vm = d.toISOString().slice(0, 10).slice(0, 7);
+  const d2 = new Date(d); d2.setDate(0);
+  const vvm = d2.toISOString().slice(0, 10).slice(0, 7);
+  const im = (m) => l.filter(e => (e.datum || "").startsWith(m));
+  const s = (arr, f) => arr.reduce((x, e) => x + (+e[f] || 0), 0);
+  const cur = im(vm);
+  if (!cur.length) return null;
+  const kwh = s(cur, "kwh"), eurS = s(cur, "kosten");
+  const vorher = im(vvm);
+  return {
+    monat: vm, anz: cur.length, kwh, eur: eurS,
+    schnitt: kwh ? eurS / kwh : null,
+    vsAdhoc: kwh * 0.79 - eurS,
+    trend: vorher.length ? eurS - s(vorher, "kosten") : null,
+  };
+}
+
 /* ---------- Sprachausgabe (Fahrmodus) ---------- */
 function sprechen(text) {
   try {
@@ -1111,6 +1174,22 @@ async function checkTarifUpdate(manuell) {
 let updateHinweis = null;
 function applyTarifUpdate() {
   if (!updateInfo) return;
+  // Persönlicher Preis-Alarm: Betrifft eine Änderung DEINE Karten/Abos?
+  const minPreis = (t) => {
+    const ps = [];
+    for (const p of Object.values(t.preise || {})) { if (p.ac != null) ps.push(p.ac); if (p.dc != null) ps.push(p.dc); }
+    if (t.roaming) { if (t.roaming.ac != null) ps.push(t.roaming.ac); if (t.roaming.dc != null) ps.push(t.roaming.dc); }
+    return ps.length ? Math.min(...ps) : null;
+  };
+  const alarme = [];
+  for (const neu of updateInfo.tarife) {
+    const altT = state.tarife.find(t => t.id === neu.id);
+    if (!altT || altT.editiert || !besitzt(altT)) continue;
+    const a = minPreis(altT), n = minPreis(neu);
+    if (a != null && n != null && Math.abs(n - a) >= 0.005) alarme.push({ name: neu.name, alt: a, neu: n, feld: "€/kWh (Bestpreis)" });
+    else if ((altT.grund || 0) !== (neu.grund || 0)) alarme.push({ name: neu.name, alt: altT.grund || 0, neu: neu.grund || 0, feld: "€/Monat Grundgebühr" });
+  }
+  if (alarme.length) state.preisAlarm = { stand: updateInfo.preisstand, liste: alarme.slice(0, 6) };
   for (const neu of updateInfo.tarife) {
     const i = state.tarife.findIndex(t => t.id === neu.id);
     if (i >= 0) { if (!state.tarife[i].editiert) state.tarife[i] = neu; }
@@ -1249,12 +1328,19 @@ function renderNav() {
   // Einfacher Modus: nur Start, Fahren, Wissen (z. B. für Familie/Schwager)
   const sichtbar = state.settings.einfach ? TABS.filter(t => ["start", "fahren", "wissen"].includes(t.id)) : TABS;
   if (!sichtbar.find(t => t.id === state.tab)) state.tab = "start";
+  // To-do-Zähler am Start-Tab: sehen, dass etwas ansteht — ohne zu lesen
+  let badge = 0;
+  try { badge = aktionen(monatsAnalyse()).length + (state.preisAlarm ? 1 : 0); } catch (e) { /* Startphase */ }
+  const bd = (t) => t.id === "start" && badge ? `<span class="badge">${badge}</span>` : "";
   const mk = (t) => `<button data-tab="${t.id}" class="${state.tab === t.id ? "on" : ""}" aria-label="${t.label}">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${t.icon}"/></svg>${t.label}</button>`;
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${t.icon}"/></svg>${t.label}${bd(t)}</button>`;
   const bar = $("#tabbar");
   bar.innerHTML = sichtbar.map(mk).join("");
   bar.style.gridTemplateColumns = `repeat(${sichtbar.length}, 1fr)`;
-  $("#topnav").innerHTML = sichtbar.map(t => `<button data-tab="${t.id}" class="${state.tab === t.id ? "on" : ""}">${t.label}</button>`).join("");
+  $("#topnav").innerHTML = sichtbar.map(t => `<button data-tab="${t.id}" class="${state.tab === t.id ? "on" : ""}">${t.label}${bd(t)}</button>`).join("");
+  // Fahrzeug-Zeile im Kopf folgt dem Profil
+  const sub = $("#fzgsub");
+  if (sub) sub.textContent = state.fahrzeug.name;
 }
 
 /* ---------- Start / Dashboard ---------- */
@@ -1263,15 +1349,101 @@ function viewStart() {
   const acts = aktionen(ana);
   let html = "";
 
+  // ---------- Kontext zuerst: Was ist JETZT wichtig? ----------
+  // Läuft gerade eine Ladung? Timer-Status ganz oben, egal wo gestartet
+  if (state.ladeTimer) {
+    const minL = Math.floor((Date.now() - state.ladeTimer.start) / 60000);
+    const restL = state.ladeTimer.grenze == null ? null : state.ladeTimer.grenze - minL;
+    html += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
+      <div class="btnrow"><button class="btn small primary" data-tab="fahren">Zum Timer</button></div></div>`;
+  }
+  // Heute unterwegs? Live-Ansicht mit dem nächsten Stopp
+  const heuteTrip = state.trips.find(t => t.datum === heute() && t.stopps && t.stopps.length);
+  if (heuteTrip) {
+    const lIdx = Math.min(heuteTrip.liveStopp || 0, heuteTrip.stopps.length);
+    const lSt = heuteTrip.stopps[lIdx];
+    html += `<div class="card alert info"><h3>🚗 Heute: ${esc(heuteTrip.ziel)} ${iBtn("live-notfall")}</h3>
+      ${iBox("live-notfall", "Wenn's an der Säule hakt: 1) Zweitkarte/App probieren · 2) Ad-hoc per QR/Kreditkarte · 3) Hotline auf der Säule anrufen · 4) unter 10 % Akku: nächsten Standort ansteuern, nicht warten. Säulen in der Nähe zeigt dir jederzeit der Fahrmodus.")}` +
+      (lSt ? `<p><b>Nächster Stopp ${lIdx + 1}/${heuteTrip.stopps.length}:</b> ${esc(lSt.name)} — km ${n0(lSt.posKm)}, Ankunft ~${lSt.ankunftSoc} %, laden auf ${lSt.zielSoc} % (~${lSt.ladeMin} min)</p>
+      <div class="btnrow">
+        <a class="btn small primary" href="${mapsUrl(lSt)}" target="_blank" rel="noopener">🗺 Navigation</a>
+        <button class="btn small" data-action="station-teilen" data-id="${esc(heuteTrip.id + "-" + lSt.id)}">📤 Ans Auto</button>
+        <button class="btn small ghost" data-action="live-weiter" data-id="${esc(heuteTrip.id)}">✓ Stopp erledigt</button>
+      </div>` : `<p>✅ Alle Ladestopps erledigt — Ankunft mit ~${heuteTrip.ankunftFinal != null ? heuteTrip.ankunftFinal : "?"} % Akku. Gute Fahrt!</p>
+      <div class="btnrow"><button class="btn small ghost" data-action="live-reset" data-id="${esc(heuteTrip.id)}">↺ Stopps zurücksetzen</button></div>`) + `</div>`;
+  }
+  // Trip morgen/übermorgen: Countdown + offene Vorbereitung
+  const nT = state.trips.filter(t => t.datum && t.datum > heute()).sort((a, b) => a.datum.localeCompare(b.datum))[0];
+  if (nT) {
+    const tg = Math.ceil((new Date(nT.datum) - new Date()) / 864e5);
+    const clN = tripCheckliste(nT, tripAnalyse(nT));
+    const offen = clN.filter((x, i) => !state.checks[nT.id + "-" + i]).length;
+    html += `<div class="card alert info"><p>🧳 <b>${tg === 1 ? "Morgen" : "In " + tg + " Tagen"}: ${esc(nT.ziel)}</b>${offen ? ` — noch <b>${offen}</b> Punkt${offen === 1 ? "" : "e"} auf der Checkliste` : " — Checkliste komplett ✓"}</p>
+      <div class="btnrow"><button class="btn small primary" data-tab="trips">Zum Trip</button></div></div>`;
+  }
+
+  // Erster Start: 3 kurze Fragen statt Erklärtext — danach ist alles vorbefüllt
   if (!state.settings.introWeg) {
-    html += `<div class="card alert info"><h3>👋 Dein Lade-Cockpit</h3>
-      <p>1️⃣ <b>Orte</b>: wo &amp; wie viel du lädst → Empfehlungen mit Rechenbeispiel. 2️⃣ <b>Trips</b>: Start + Ziel → Route, Stopps, Karten-Kombi. 3️⃣ <b>Tarife</b>: markieren, was du hast. Deine Eingaben bleiben gespeichert — auch bei App-Updates. Fragen? Oben rechts <b>?</b>.</p>
-      <div class="btnrow"><button class="btn small" data-action="intro-weg">Verstanden</button></div></div>`;
+    const schritt = state.settings.onboarding || 1;
+    if (schritt === 1) {
+      const startKarten = ["maingau", "enbw-s", "kaufland-app", "aldi-app", "electroverse", "tesla-app"];
+      html += `<div class="card alert info"><h3>👋 Los geht's — Frage 1 von 3</h3>
+        <p><b>Welche Lade-Karten oder -Apps hast du schon?</b></p>
+        ${startKarten.map(kid => { const t = state.tarife.find(x => x.id === kid); return t ? `<label style="display:flex;gap:8px;align-items:center;padding:3px 0;cursor:pointer"><input type="checkbox" data-obkarte="${t.id}" ${state.karten[t.id] ? "checked" : ""}> <span class="small">${esc(t.name)}</span></label>` : ""; }).join("")}
+        <div class="btnrow"><button class="btn small primary" data-action="ob-weiter">Weiter →</button><button class="btn small ghost" data-action="intro-weg">Überspringen</button></div></div>`;
+    } else if (schritt === 2) {
+      html += `<div class="card alert info"><h3>Frage 2 von 3</h3>
+        <p><b>Wie viel fährst du ungefähr pro Monat?</b> <span class="muted small">Daraus schätzt die App deine Lademenge — später unter „Orte“ jederzeit anpassbar.</span></p>
+        <div class="btnrow">${[500, 1000, 1500, 2500].map(km => `<button class="btn small" data-action="ob-km" data-km="${km}">~${n0(km)} km</button>`).join("")}<button class="btn small ghost" data-action="ob-weiter">Überspringen</button></div></div>`;
+    } else {
+      html += `<div class="card alert info"><h3>Frage 3 von 3</h3>
+        <p><b>Deine Heim-Adresse?</b> <span class="muted small">Bleibt nur auf diesem Gerät — als Favorit im Routen-Planer und für „Säulen in der Nähe“.</span></p>
+        <div class="frow" style="align-items:flex-end">
+          <div style="flex:3 1 200px"><input type="text" id="ob-adresse" placeholder="z. B. Musterstr. 1, München"></div>
+          <div style="flex:1 1 120px"><button class="btn small primary" data-action="ob-fertig" style="width:100%">Fertig ✓</button></div>
+        </div>
+        <div class="btnrow"><button class="btn small ghost" data-action="intro-weg">Überspringen</button></div></div>`;
+    }
+  }
+
+  // Als App installieren — ein Tipp statt Menü-Anleitung (nur wenn möglich & noch nicht installiert)
+  if (installPrompt && !(window.matchMedia && matchMedia("(display-mode: standalone)").matches)) {
+    html += tipp("install", `<p>📲 <b>Als App installieren</b> — eigenes Icon auf dem Startbildschirm, Vollbild, startet auch offline.</p>
+      <div class="btnrow"><button class="btn small primary" data-action="installieren">Jetzt installieren</button></div>`);
   }
 
   // Tarif-Update wurde beim Start automatisch übernommen
   if (updateHinweis) {
     html += `<div class="card alert good"><p>✓ <b>Tarife automatisch aktualisiert</b> — Preisstand ${datumDE(updateHinweis)}. Deine eigenen Änderungen blieben unangetastet.</p></div>`;
+  }
+  // Persönlicher Preis-Alarm: Änderungen bei DEINEN Karten/Abos
+  if (state.preisAlarm && state.preisAlarm.liste && state.preisAlarm.liste.length) {
+    const teurer = state.preisAlarm.liste.some(a => a.neu > a.alt);
+    html += `<div class="card alert ${teurer ? "" : "good"}"><h3>${teurer ? "⚠️ Preisänderung bei deinen Karten" : "🎉 Deine Karten wurden günstiger"}</h3>
+      <ul class="clean">${state.preisAlarm.liste.map(a => `<li><b>${esc(a.name)}</b>: ${a.alt.toLocaleString("de-DE")} → ${a.neu.toLocaleString("de-DE")} ${esc(a.feld)} ${a.neu > a.alt ? '<span class="pill crit">teurer</span>' : '<span class="pill good">günstiger</span>'}</li>`).join("")}</ul>
+      <p class="small">Alle Empfehlungen und To-dos sind bereits mit den neuen Preisen berechnet.</p>
+      <div class="btnrow"><button class="btn small" data-action="preisalarm-weg">Verstanden</button></div></div>`;
+  }
+  // Kälte-Check kurz vor einem Trip (Wetterdaten werden beim App-Start aufgefrischt)
+  for (const trK of state.trips) {
+    if (!trK.datum) continue;
+    const tageK = Math.round((new Date(trK.datum) - new Date()) / 864e5);
+    if (tageK < 0 || tageK > 2) continue;
+    if (kaelteFaktor(trK) <= 1.05) continue;
+    html += `<div class="card alert"><p>🌡️ <b>${esc(trK.ziel)}</b> ${tageK === 0 ? "heute" : tageK === 1 ? "morgen" : "übermorgen"}: ${esc(kaelteText(trK))}.</p>
+      <div class="btnrow"><button class="btn small primary" data-action="trip-kaelte-calc" data-id="${esc(trK.id)}">Stopps mit Kälte neu berechnen</button></div></div>`;
+  }
+  // Monats-Rückblick (einmal pro Monat, wegklickbar)
+  const rep = monatsReport();
+  if (rep) {
+    const mName = new Date(rep.monat + "-01T12:00:00").toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+    html += tipp("report-" + rep.monat, `<h3>📅 Dein Lade-Monat ${esc(mName)}</h3>
+      <div class="hero">
+        <div class="stat"><div class="v num">${eur(rep.eur, 0)}</div><div class="l">${n0(rep.kwh)} kWh · ${rep.anz} Ladungen</div></div>
+        <div class="stat"><div class="v num">${rep.schnitt != null ? rep.schnitt.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "–"}<span class="unit"> €/kWh</span></div><div class="l">Ø-Preis</div></div>
+        <div class="stat"><div class="v num">${eur(rep.vsAdhoc, 0)}</div><div class="l">gespart vs. Ad-hoc</div></div>
+        ${rep.trend != null ? `<div class="stat"><div class="v num">${rep.trend <= 0 ? "↘" : "↗"} ${eur(Math.abs(rep.trend), 0)}</div><div class="l">vs. Vormonat</div></div>` : ""}
+      </div>`);
   }
   // Belegte Änderungen des letzten Updates (mit Quellen)
   if (state.aenderungsLog && state.aenderungsLog.liste && state.aenderungsLog.liste.length) {
@@ -1364,15 +1536,6 @@ function viewStart() {
       <p class="small muted">⚠ = Preis variiert je Säule/Uhrzeit.</p></details></div>`;
   }
 
-  // Nächster Trip
-  const nT = state.trips.filter(t => t.datum && t.datum >= heute()).sort((a, b) => a.datum.localeCompare(b.datum))[0];
-  if (nT) {
-    const tg = Math.ceil((new Date(nT.datum) - new Date()) / 864e5);
-    html += `<div class="card alert info"><h3>🧳 Nächster Trip: ${esc(nT.ziel)} in ${tg} Tagen</h3>
-      <p>Checkliste und Ladeplan findest du unter <b>Trips</b>.</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="trips">Zum Trip-Planer</button></div></div>`;
-  }
-
   html += `<div class="card flat"><details class="plain"><summary>⚙️ Daten, Updates &amp; Sicherung <span class="muted">(Preisstand ${datumDE(state.settings.preiseGeprueft)} — aktualisiert sich montags von selbst)</span></summary>
     <div class="btnrow">
       <button class="btn small primary" data-action="update-check">🔄 Nach neuen Daten suchen</button>
@@ -1449,7 +1612,15 @@ function viewOrte() {
       <div><label class="f">Verbrauch Autobahn 130 (kWh/100 km)</label><input type="number" step="0.5" min="10" data-ffeld="verbrauchAB" value="${state.fahrzeug.verbrauchAB}"></div>
       <div><label class="f">Winter-Zuschlag (%)</label><input type="number" step="1" min="0" data-ffeld="winterZuschlag" value="${state.fahrzeug.winterZuschlag}"></div>
     </div>
-    <p class="small">Fahrzeug: ${esc(state.fahrzeug.name)} — ${state.fahrzeug.akkuNetto} kWh netto, DC bis ${state.fahrzeug.dcMax} kW (10→80 % ≈ 18 min), AC ${state.fahrzeug.acMax} kW.</p>
+    <hr class="divider">
+    <p class="small"><b>Fahrzeug-Profil</b> ${iBtn("fzg-hilfe")}</p>
+    ${iBox("fzg-hilfe", "Vorkonfiguriert ist dein smart #5 Brabus. Für ein anderes Auto (z. B. auf dem iPhone deines Schwagers) einfach Name, Akku und Ladeleistung anpassen — alle Reichweiten, Stopps und Ladezeiten rechnen dann mit diesen Werten.")}
+    <div class="frow">
+      <div><label class="f">Fahrzeug</label><input type="text" data-ffeldtext="name" value="${esc(state.fahrzeug.name)}"></div>
+      <div><label class="f">Akku netto (kWh)</label><input type="number" step="1" min="10" data-ffeld="akkuNetto" value="${state.fahrzeug.akkuNetto}"></div>
+      <div><label class="f">DC-Spitze (kW)</label><input type="number" step="10" min="20" data-ffeld="dcMax" value="${state.fahrzeug.dcMax}"></div>
+      <div><label class="f">AC (kW)</label><input type="number" step="1" min="2" data-ffeld="acMax" value="${state.fahrzeug.acMax}"></div>
+    </div>
   </details></div>`;
   return html;
 }
@@ -1466,6 +1637,11 @@ function viewTarife() {
     <div class="legend">${c.legende}</div>
     ${c.beListe && c.beListe.length ? `<ul class="clean" style="margin-top:8px">${c.beListe.map(b =>
       `<li class="small"><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${b.farbe};margin-right:6px"></span>${esc(b.text)}</li>`).join("")}</ul>` : ""}
+    <hr class="divider">
+    <label class="f">Was wäre wenn? Lademenge pro Monat schieben ${iBtn("szen-hilfe")}</label>
+    ${iBox("szen-hilfe", "Der Regler spielt Szenarien durch: Was würden die Optionen dieser Situation bei X kWh/Monat kosten, und welche wäre die günstigste? Deine echten Orte und Empfehlungen bleiben unberührt.")}
+    <input type="range" id="szenario" min="0" max="${c.maxKwh}" step="10" value="${Math.max(0, Math.min(c.maxKwh, Math.round(monatsAnalyse().kwhGesamt) || 100))}" style="width:100%">
+    <p class="small num" id="szenario-out"></p>
     <details><summary>Zahlen als Tabelle</summary>${c.tabelle}</details>
   </div>`;
 
@@ -1533,6 +1709,10 @@ function viewTrips() {
       <button class="btn small ghost" data-action="adr-merken-start">☆ Start als Adresse speichern</button>
       <button class="btn small ghost" data-action="adr-merken-ziel">☆ Ziel als Adresse speichern</button>
     </div>
+    ${(state.routenVerlauf || []).length ? `<div class="meta" style="margin-top:8px"><span class="small muted">Zuletzt geplant:</span> ${state.routenVerlauf.map((v, i) =>
+      `<span class="pill">🕘 ${esc(v.start.slice(0, 16))} → ${esc(v.ziel.slice(0, 16))}
+        <button class="del" data-action="verlauf-plan" data-i="${i}" title="Route erneut berechnen">↻</button>
+        <button class="del" data-action="verlauf-weg" data-i="${i}" title="aus dem Verlauf löschen">✕</button></span>`).join(" ")}</div>` : ""}
     ${state.planer.startErkannt ? `<p class="small">✔ Zuletzt erkannt: <b>${esc(state.planer.startErkannt)}</b> → <b>${esc(state.planer.zielErkannt || "")}</b> — falls falsch: Adresse präziser eingeben (Straße, PLZ, Land) und neu berechnen.</p>` : ""}
     <details class="plain"><summary>Annahmen anpassen (Ankunfts-%, Tempo, Winter, Beladung)</summary>
       <div class="frow">
@@ -1569,6 +1749,7 @@ function viewTrips() {
               ${k.grund ? `<div class="line"><span>Grundgebühr (1 Monat${k.abo ? ", danach kündigen" : ""})</span><span>${eur(k.grund)}</span></div>` : ""}
               <div class="line"><span>${n0(k.kwhCov)} kWh × ${ct(k.preis)} (${esc(netzKurz(k.netz))})</span><span>${eur(k.preis * k.kwhCov)}</span></div>
               ${k.kwhRest > 0.5 ? `<div class="line"><span>+ ${n0(k.kwhRest)} kWh × ${ct(k.lueckePreis)} (Streckenteil ohne dieses Netz)</span><span>${eur(k.lueckePreis * k.kwhRest)}</span></div>` : ""}
+              ${k.blockKosten > 0.5 ? `<div class="line"><span>+ Blockiergebühr (~${n0(k.blockMin)} min über der Gratis-Standzeit, 0,10 €/min)</span><span>${eur(k.blockKosten)}</span></div>` : ""}
               <div class="line total"><span>Unterwegs gesamt</span><span>${eur(k.kosten)}</span></div>
               ${ana.bestOhneAbo && ana.bestOhneAbo !== k ? `<div class="line"><span>Vergleich beste 0-€-Option (${esc(ana.bestOhneAbo.label.split(" — ")[0])}: ${eur(ana.bestOhneAbo.kosten, 0)})</span><span>${k.kosten < ana.bestOhneAbo.kosten - 0.005 ? "spart " + eur(ana.bestOhneAbo.kosten - k.kosten) : "+" + eur(k.kosten - ana.bestOhneAbo.kosten) + " teurer"}</span></div>` : ""}
             </div>
@@ -1600,6 +1781,7 @@ function viewTrips() {
       </details>
       <div class="btnrow"><button class="btn primary small" data-action="trip-calc">🔄 Neu berechnen</button>
         ${trip.startCoord ? `<a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${trip.startCoord.lat},${trip.startCoord.lng}&destination=${trip.zielCoord.lat},${trip.zielCoord.lng}${trip.stopps && trip.stopps.length ? "&waypoints=" + trip.stopps.map(s => s.lat + "," + s.lng).join("%7C") : ""}">🗺 Ganze Route mit Stopps in Google Maps</a>` : ""}
+        <button class="btn small" data-action="trip-teilen" data-id="${trip.id}">📤 Trip teilen (WhatsApp)</button>
       </div>
       <hr class="divider">
       <div class="hero">
@@ -1786,14 +1968,16 @@ function viewFahren() {
   const stat = logbuchStatistik();
   html += `<div class="card" style="margin-top:12px"><h3>📓 Lade-Logbuch ${iBtn("logb")}</h3>
     ${iBox("logb", "30 Sekunden nach jedem Laden eintragen: Daraus lernt die App deine <b>echte</b> Ladegeschwindigkeit und deinen <b>echten</b> Verbrauch — alle Prognosen werden persönlicher. Die Startseite zeigt deine echten Kosten.")}
+    ${state.timerVorschlag ? `<p class="small">⏱ <b>${state.timerVorschlag.minuten} min aus dem Timer übernommen</b> — nur noch kWh eintragen, die Kosten rechnet die App aus deinem Tarif vor.</p>` : ""}
     <div class="frow">
-      <div><label class="f">Netz</label><select id="log-netz">${NETZE.map(n => `<option value="${n.id}" ${n.id === netz ? "selected" : ""}>${esc(n.kurz)}</option>`).join("")}</select></div>
+      <div><label class="f">Netz</label><select id="log-netz">${NETZE.map(n => `<option value="${n.id}" ${n.id === ((state.timerVorschlag && state.timerVorschlag.netz) || netz) ? "selected" : ""}>${esc(n.kurz)}</option>`).join("")}</select></div>
       <div><label class="f">geladene kWh</label><input type="number" id="log-kwh" min="0" step="1" placeholder="55"></div>
-      <div><label class="f">Dauer (min)</label><input type="number" id="log-min" min="0" step="1" placeholder="18"></div>
-      <div><label class="f">Kosten gesamt (€)</label><input type="number" id="log-eur" min="0" step="0.5" placeholder="28"></div>
+      <div><label class="f">Dauer (min)</label><input type="number" id="log-min" min="0" step="1" placeholder="18" value="${state.timerVorschlag ? state.timerVorschlag.minuten : ""}"></div>
+      <div><label class="f">Kosten (€) <span class="muted">(leer = auto)</span></label><input type="number" id="log-eur" min="0" step="0.5" placeholder="auto"></div>
       <div><label class="f">km seit letztem Laden <span class="muted">(optional)</span></label><input type="number" id="log-km" min="0" step="10" placeholder="230"></div>
+      <div><label class="f">Akku von → bis % <span class="muted">(optional)</span></label><div style="display:flex;gap:6px"><input type="number" id="log-socv" min="0" max="100" placeholder="20"><input type="number" id="log-socb" min="0" max="100" placeholder="80"></div></div>
     </div>
-    <div class="btnrow"><button class="btn primary small" data-action="log-neu">＋ Ladung speichern</button></div>
+    <div class="btnrow"><button class="btn primary small" data-action="log-neu">＋ Ladung speichern</button>${state.logbuch.length ? '<button class="btn small ghost" data-action="log-csv">⬇ Als Excel/CSV</button>' : ""}</div>
     ${state.kalib.ladeFaktor !== 1 ? `<p class="small">🎯 Kalibrierung aktiv: Ladezeiten × ${(1 / state.kalib.ladeFaktor).toLocaleString("de-DE", { maximumFractionDigits: 2 })} (aus deinen DC-Ladungen gelernt).</p>` : ""}
     ${stat && stat.verbrauchEcht != null && Math.abs(stat.verbrauchEcht / ((state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2 * (state.kalib.verbrauchFaktor || 1)) - 1) > 0.07 ? `
       <p class="small">🎯 Dein echter Ø-Verbrauch (${n1(stat.verbrauchEcht)} kWh/100 km) weicht vom Planwert ab.
@@ -1906,12 +2090,16 @@ function routeKarte(trip) {
   const py = lat => (my(lat, z) - cy) * T + H / 2;
   const maxT = Math.pow(2, z);
   let tiles = "";
+  const urls = [];
   for (let tx = Math.floor(cx - W / 2 / T); tx <= Math.floor(cx + W / 2 / T); tx++) {
     for (let ty = Math.max(0, Math.floor(cy - H / 2 / T)); ty <= Math.min(maxT - 1, Math.floor(cy + H / 2 / T)); ty++) {
       const wrapX = ((tx % maxT) + maxT) % maxT;
-      tiles += `<img src="https://tile.openstreetmap.org/${z}/${wrapX}/${ty}.png" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;left:${Math.round((tx - cx) * T + W / 2)}px;top:${Math.round((ty - cy) * T + H / 2)}px;width:${T}px;height:${T}px">`;
+      const u = `https://tile.openstreetmap.org/${z}/${wrapX}/${ty}.png`;
+      urls.push(u);
+      tiles += `<img src="${u}" alt="" loading="lazy" onerror="this.remove()" style="position:absolute;left:${Math.round((tx - cx) * T + W / 2)}px;top:${Math.round((ty - cy) * T + H / 2)}px;width:${T}px;height:${T}px">`;
     }
   }
+  routeKarte.letzteUrls = urls; // für den Offline-Cache (tilesCachen)
   const pfad = trip.geo.map((p, i) => (i ? "L" : "M") + px(p[1]).toFixed(1) + " " + py(p[0]).toFixed(1)).join(" ");
   const punkt = (lat, lng, farbe, txt) =>
     `<circle cx="${px(lng).toFixed(1)}" cy="${py(lat).toFixed(1)}" r="10" fill="${farbe}" stroke="#fff" stroke-width="2.5"/>` +
@@ -1934,6 +2122,16 @@ function routeKarte(trip) {
   </div>
   <p class="small muted">S = Start · Z = Ziel · Stopps: 🟢 schnell (≥ 150 kW) · 🟡 langsamer · 🔴 offen. Anderer Weg gewünscht? Oben Alternativ-Route wählen.</p>`;
 }
+// Karten-Kacheln der Route offline verfügbar machen (der Service Worker
+// liefert sie dann auch ohne Netz aus — z. B. in Bosnien)
+async function tilesCachen(urls) {
+  try {
+    if (!("caches" in window) || !urls || !urls.length) return;
+    const c = await caches.open("lkc-tiles");
+    await Promise.all(urls.map(u => c.match(u).then(hit => hit ? null : c.add(u).catch(() => null))));
+  } catch (e) { /* offline o. Ä. — beim nächsten Planen erneut */ }
+}
+
 // Karten skalieren sich auf die Kartenbreite des Geräts
 function skaliereKarten() {
   $$(".mapwrap").forEach(w => {
@@ -2025,6 +2223,18 @@ function bindDynamic() {
     svg.addEventListener("pointerleave", () => { tip.style.display = "none"; });
     const sel = $("#chartctx");
     if (sel) sel.addEventListener("change", () => { state.chartKontext = sel.value; save(); render(); });
+    // Was-wäre-wenn-Regler: live rechnen ohne Neuzeichnen der Seite
+    const sz = $("#szenario"), szOut = $("#szenario-out");
+    if (sz && szOut) {
+      const zeig = () => {
+        const kw = +sz.value;
+        const sortiert = c.auswahl.slice().sort((a, b) => (a.grund + a.preis * kw) - (b.grund + b.preis * kw));
+        szOut.innerHTML = `Bei <b>${kw} kWh/Monat</b>: ` + sortiert.slice(0, 3).map((l, i) =>
+          `${["🥇", "🥈", "🥉"][i]} ${esc(kurzName(l.tarif))} <b>${eur(l.grund + l.preis * kw, 0)}</b>`).join(" · ");
+      };
+      sz.addEventListener("input", zeig);
+      zeig();
+    }
   }
   // Import-Datei
   const imp = $("#importfile");
@@ -2061,6 +2271,40 @@ document.addEventListener("click", (e) => {
   if (!btn) return;
   const act = btn.dataset.action, id = btn.dataset.id;
   if (act === "intro-weg") { state.settings.introWeg = true; }
+  if (act === "ob-weiter") {
+    // Onboarding: angehakte Karten übernehmen, dann nächste Frage
+    $$("[data-obkarte]").forEach(cb => { if (cb.checked) state.karten[cb.dataset.obkarte] = true; });
+    state.settings.onboarding = (state.settings.onboarding || 1) + 1;
+    if (state.settings.onboarding > 3) state.settings.introWeg = true;
+  }
+  if (act === "ob-km") {
+    const kmM = +btn.dataset.km || 0;
+    const vMix = (state.fahrzeug.verbrauchStadt + state.fahrzeug.verbrauchLand) / 2;
+    const zielOrt = state.orte.find(o => o.id === "heim-dc") || state.orte[0];
+    if (zielOrt) zielOrt.kwhMonat = Math.round(kmM * vMix / 100);
+    state.settings.onboarding = 3;
+  }
+  if (act === "ob-fertig") {
+    const adr = (($("#ob-adresse") || {}).value || "").trim();
+    if (adr) {
+      state.adressen.push({ label: "Zuhause", adresse: adr });
+      const heimOrt = state.orte.find(x => x.id === "heim-ac") || state.orte[0];
+      if (heimOrt) heimOrt.adresse = adr;
+    }
+    state.settings.introWeg = true;
+  }
+  if (act === "preisalarm-weg") state.preisAlarm = null;
+  if (act === "trip-kaelte-calc") {
+    const trC = state.trips.find(t => t.id === id);
+    if (trC && trC.stopps) stoppsNeuBerechnen(trC);
+    state.tab = "trips";
+  }
+  if (act === "installieren") {
+    if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; render(); }); }
+    return;
+  }
+  if (act === "live-weiter") { const trL = state.trips.find(t => t.id === id); if (trL) trL.liveStopp = Math.min((trL.liveStopp || 0) + 1, (trL.stopps || []).length); }
+  if (act === "live-reset") { const trL = state.trips.find(t => t.id === id); if (trL) trL.liveStopp = 0; }
   if (act === "karte-da") state.karten[id] = true;
   if (act === "karte-weg") delete state.karten[id];
   if (act === "abo-an") state.abos[id] = true;
@@ -2110,6 +2354,25 @@ document.addEventListener("click", (e) => {
     if (a) { state.planer[act === "adr-start" ? "start" : "ziel"] = a.adresse; }
   }
   if (act === "adr-weg") { state.adressen.splice(+btn.dataset.i, 1); }
+  if (act === "verlauf-plan") {
+    const v = (state.routenVerlauf || [])[+btn.dataset.i];
+    if (v) { state.planer.start = v.start; state.planer.ziel = v.ziel; save(); render(); routePlanen(); }
+    return;
+  }
+  if (act === "verlauf-weg") { state.routenVerlauf.splice(+btn.dataset.i, 1); }
+  if (act === "trip-teilen") {
+    const trip = state.trips.find(t => t.id === id);
+    if (!trip) return;
+    const anaT = tripAnalyse(trip);
+    let txt = "🚗 " + trip.ziel + (trip.datum ? " am " + datumDE(trip.datum) : "") + "\n" +
+      "Strecke: " + n0(trip.hinKm) + " km" + (trip.fahrzeitMin ? " · ~" + Math.floor(trip.fahrzeitMin / 60) + " h " + Math.round(trip.fahrzeitMin % 60) + " min + " + n0((trip.stopps || []).reduce((s, x) => s + (x.ladeMin || 0), 0)) + " min Laden" : "") + "\n";
+    (trip.stopps || []).forEach((st, i) => { txt += "⚡ Stopp " + (i + 1) + ": " + st.name + " (km " + n0(st.posKm) + ", ~" + (st.ladeMin || 0) + " min)\n"; });
+    txt += "Ankunft mit ~" + (trip.ankunftFinal != null ? trip.ankunftFinal : "?") + " % Akku · Strom gesamt ≈ " + eur(anaT.gesamt, 0) +
+      (anaT.best ? " · Karte: " + anaT.best.label.split(" — ")[0] : "");
+    if (navigator.share) { navigator.share({ text: txt }).catch(() => { }); }
+    else if (navigator.clipboard) { navigator.clipboard.writeText(txt); alert("Zusammenfassung kopiert — z. B. in WhatsApp einfügen."); }
+    return;
+  }
   if (act === "recherche-start") {
     const token = (state.settings.ghToken || "").trim();
     if (!token) { alert("Dafür einmalig ein GitHub-Token eintragen (unter „Erweitert“) — Anleitung im Feld."); return; }
@@ -2139,8 +2402,19 @@ document.addEventListener("click", (e) => {
       grenze: g === null ? null : (g || (art === "dc" ? 60 : 240)),
       tarifName: t0 ? t0.name : "",
     };
+    // Erlaubnis kontextbezogen erfragen — genau jetzt ist eine Warnung nützlich
+    try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) { }
   }
-  if (act === "timer-stop") state.ladeTimer = null;
+  if (act === "timer-stop") {
+    // Dauer direkt ins Logbuch-Formular übernehmen (Erfassung in 5 Sekunden)
+    if (state.ladeTimer) {
+      state.timerVorschlag = {
+        minuten: Math.max(1, Math.round((Date.now() - state.ladeTimer.start) / 60000)),
+        netz: state.ladeTimer.netz,
+      };
+    }
+    state.ladeTimer = null;
+  }
   if (act === "log-neu") {
     const val = (sel) => { const el = $(sel); return el && el.value !== "" ? Math.max(0, +el.value) : 0; };
     const eintrag = {
@@ -2148,8 +2422,36 @@ document.addEventListener("click", (e) => {
       kwh: val("#log-kwh"), minuten: val("#log-min"), kosten: val("#log-eur"), km: val("#log-km"),
     };
     if (!eintrag.kwh) { alert("Mindestens die geladenen kWh eintragen."); return; }
+    // Optionale SoC-Angaben -> präzisere persönliche Ladekurve
+    const socV = ($("#log-socv") || {}).value, socB = ($("#log-socb") || {}).value;
+    if (socV !== "" && socV != null && socB !== "" && socB != null && +socB > +socV) {
+      eintrag.socVon = Math.max(0, Math.min(100, +socV));
+      eintrag.socBis = Math.max(0, Math.min(100, +socB));
+    }
+    // Kosten aus deinem Tarif vorrechnen, wenn nicht angegeben
+    if (!eintrag.kosten && eintrag.kwh) {
+      const artL = eintrag.minuten && eintrag.kwh / (eintrag.minuten / 60) >= 30 ? "dc" : "ac";
+      const meineL = state.tarife.filter(besitzt).map(t => t.id);
+      const bL = besterPreis(eintrag.netz, artL, meineL);
+      if (bL) eintrag.kosten = Math.round(eintrag.kwh * bL.preis * 100) / 100;
+    }
+    state.timerVorschlag = null;
     state.logbuch.push(eintrag);
     logbuchKalibrieren();
+  }
+  if (act === "log-csv") {
+    const kopf = "Datum;Netz;kWh;Minuten;Kosten EUR;km;Akku von %;Akku bis %";
+    const zeilen = state.logbuch.map(e => [
+      e.datum, netzKurz(e.netz), e.kwh, e.minuten,
+      e.kosten != null ? String(e.kosten).replace(".", ",") : "",
+      e.km || "", e.socVon != null ? e.socVon : "", e.socBis != null ? e.socBis : "",
+    ].join(";"));
+    const blob = new Blob(["﻿" + [kopf].concat(zeilen).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ladelogbuch-" + heute() + ".csv";
+    a.click(); URL.revokeObjectURL(a.href);
+    return;
   }
   if (act === "log-weg") { state.logbuch.splice(+btn.dataset.i, 1); logbuchKalibrieren(); }
   if (act === "log-verbrauch") {
@@ -2266,6 +2568,7 @@ document.addEventListener("change", (e) => {
   if (t.dataset.scheck) { state.settings[t.dataset.scheck] = t.checked; save(); render(); }
   if (t.dataset.scheckSel) { state.settings[t.dataset.scheckSel] = !!t.value; save(); render(); }
   if (t.dataset.ffeld) { state.fahrzeug[t.dataset.ffeld] = Math.max(0, +t.value || 0); save(); render(); }
+  if (t.dataset.ffeldtext) { state.fahrzeug[t.dataset.ffeldtext] = t.value.trim() || state.fahrzeug[t.dataset.ffeldtext]; save(); render(); }
   // Tarif-Preise
   if (t.dataset.tfeld) {
     const tarif = state.tarife.find(x => x.id === t.dataset.tid);
@@ -2302,13 +2605,41 @@ function initTheme() {
   });
 }
 
+/* ---------- „Als App installieren“ (ein Tipp statt Menü-Anleitung) ---------- */
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; render(); });
+
 /* ---------- Start ---------- */
 loadState();
 initTheme();
+// App-Icon-Shortcuts (?go=…): direkt an die richtige Stelle springen
+let goShortcut = "";
+try {
+  goShortcut = new URLSearchParams(location.search).get("go") || "";
+  if (goShortcut === "trips") state.tab = "trips";
+  if (goShortcut === "saeulen" || goShortcut === "timer") state.tab = "fahren";
+  if (goShortcut) history.replaceState(null, "", location.pathname);
+} catch (e) { /* egal */ }
 render();
+if (goShortcut === "saeulen") standortSuche();
 checkTarifUpdate();
-// Blockier-Timer: Anzeige minütlich auffrischen, solange er läuft
-setInterval(() => { if (state.ladeTimer && state.tab === "fahren") render(); }, 60000);
+// Wetter für nahe Trips auffrischen (Kälte-Check am Vortag)
+state.trips.filter(t => {
+  if (!t.datum) return false;
+  const tage = Math.round((new Date(t.datum) - new Date()) / 864e5);
+  return tage >= 0 && tage <= 3;
+}).forEach(wetterHolen);
+// Blockier-Timer: minütlich prüfen — Benachrichtigung vor der Gebühr, Anzeige auffrischen
+setInterval(() => {
+  const t = state.ladeTimer;
+  if (t && t.grenze != null) {
+    const min = Math.floor((Date.now() - t.start) / 60000);
+    const rest = t.grenze - min;
+    if (rest <= 10 && rest > 0 && !t.warn10) { t.warn10 = true; benachrichtige("⏱ Gleich Blockiergebühr", "Noch " + rest + " min gratis — Ladung bald beenden oder umparken."); save(); }
+    if (rest <= 0 && !t.warn0) { t.warn0 = true; benachrichtige("💸 Blockiergebühr läuft!", "Die Standzeitgebühr (~10 ct/min) hat begonnen — Auto umparken."); save(); }
+  }
+  if (state.ladeTimer && state.tab === "fahren") render();
+}, 60000);
 // Routen-Karten an die Fensterbreite anpassen
 window.addEventListener("resize", skaliereKarten);
 // Offline-Modus: Service Worker (nur über http/https, Datei liegt neben index.html)

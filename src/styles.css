@@ -152,6 +152,17 @@ nav.top button.on { background: var(--accent-soft); color: var(--accent); }
 .tabbar button svg { width: 21px; height: 21px; }
 .tabbar button.on { color: var(--accent); }
 
+/* To-do-Zähler am Start-Tab */
+.tabbar button, nav.top button { position: relative; }
+.badge {
+  position: absolute; top: 1px; right: 18%;
+  background: var(--crit); color: #fff;
+  font-size: .6rem; font-weight: 700; line-height: 1;
+  min-width: 15px; height: 15px; border-radius: 8px;
+  display: grid; place-items: center; padding: 0 3px;
+}
+nav.top .badge { top: 0; right: 0; }
+
 main { padding: 16px 0 30px; }
 .grid { display: grid; gap: 12px; }
 @media (min-width: 761px) {
