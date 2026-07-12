@@ -76,7 +76,7 @@ function defaultState() {
     letzteSuche: null,                   // letztes Säulen-Suchergebnis (offline nutzbar)
     logbuch: [],                         // erfasste Ladungen -> Statistik + Kalibrierung
     kalib: { ladeFaktor: 1, verbrauchFaktor: 1 },  // gelernt aus dem Logbuch
-    aktionen: [],                        // zeitlich begrenzte Anbieter-Aktionen (aus tarife.json)
+    aktionen: (typeof AKTIONEN_DEFAULT !== "undefined" ? JSON.parse(JSON.stringify(AKTIONEN_DEFAULT)) : []), // Anbieter-Aktionen (montags aktualisiert)
     aenderungsLog: null,                 // letzte Update-Änderungen mit Quellen
     ladeTimer: null,                     // laufender Blockiergebühr-Timer
     timerVorschlag: null,                // letzte Timer-Dauer -> Logbuch-Vorbefüllung
@@ -112,6 +112,10 @@ function loadState() {
   state.settings = Object.assign(defaultState().settings, s.settings || {});
   state.fahrt = Object.assign(defaultState().fahrt, s.fahrt || {});
   state.fahrzeug = Object.assign({ ...FAHRZEUG_DEFAULT }, s.fahrzeug || {});
+  // Aktionen: leeren Stand mit den bekannten Startwerten füllen (Bot überschreibt montags)
+  if ((!state.aktionen || !state.aktionen.length) && typeof AKTIONEN_DEFAULT !== "undefined") {
+    state.aktionen = JSON.parse(JSON.stringify(AKTIONEN_DEFAULT));
+  }
   state.favoriten = s.favoriten || [];
   state.kalib = Object.assign({ ladeFaktor: 1, verbrauchFaktor: 1 }, s.kalib || {});
   // Alte Trips: Winter-Bool -> neue Kälte-Automatik ("auto" | "an" | "aus")
@@ -251,7 +255,22 @@ function kartenKostenText(t) {
 }
 // Läuft für diesen Anbieter gerade eine Aktion? (aus dem wöchentlichen Update)
 function tarifAktion(t) {
-  return (state.aktionen || []).find(a => a.bis >= heute() && a.anbieter && t.name.toLowerCase().includes(a.anbieter.toLowerCase()));
+  return (state.aktionen || []).find(a => a.bis >= heute() && (
+    (a.tarifId && a.tarifId === t.id) ||
+    (a.anbieter && t.name.toLowerCase().includes(a.anbieter.toLowerCase()))
+  ) && (!a.von || a.von <= heute()));
+}
+// Zeitliche Einordnung einer Aktion: läuft gerade / startet bald / vorbei
+function aktionTiming(a) {
+  const h = heute();
+  if (a.bis && a.bis < h) return { status: "vorbei" };
+  if (a.von && a.von > h) return { status: "kommt", tage: Math.ceil((new Date(a.von) - new Date()) / 864e5) };
+  return { status: "laeuft", tage: a.bis ? Math.ceil((new Date(a.bis) - new Date()) / 864e5) : null };
+}
+// Aktive + angekündigte Aktionen (vorbei rausgefiltert), früheste zuerst
+function aktuelleAktionen() {
+  return (state.aktionen || []).filter(a => !a.bis || a.bis >= heute())
+    .sort((x, y) => (x.von || "0").localeCompare(y.von || "0"));
 }
 
 // Aktionsliste: bestellen / abonnieren / kündigen
@@ -1936,13 +1955,17 @@ function viewStart() {
     </details></div>`;
   }
   // Aktions-Radar: befristete Angebote (aus dem wöchentlichen Update)
-  const aktiveAktionen = (state.aktionen || []).filter(a => a.bis && a.bis >= heute());
+  const aktiveAktionen = aktuelleAktionen();
   if (aktiveAktionen.length) {
-    html += `<div class="card alert info"><h3>🏷️ Laufende Aktionen</h3><ul class="clean">` +
+    html += `<div class="card alert info"><h3>🏷️ Angebote der Anbieter</h3><ul class="clean">` +
       aktiveAktionen.map(a => {
-        const tageNoch = Math.ceil((new Date(a.bis) - new Date()) / 864e5);
-        return `<li><b>${esc(a.anbieter || "")}</b>: ${esc(a.text || "")} <span class="pill warn">noch ${tageNoch} Tag${tageNoch === 1 ? "" : "e"}</span></li>`;
-      }).join("") + `</ul></div>`;
+        const tm = aktionTiming(a);
+        const pill = tm.status === "kommt"
+          ? `<span class="pill warn">startet in ${tm.tage} Tag${tm.tage === 1 ? "" : "en"} — noch warten</span>`
+          : `<span class="pill good">läuft noch ${tm.tage} Tag${tm.tage === 1 ? "" : "e"}</span>`;
+        return `<li><b>${esc(a.anbieter || "")}</b>: ${esc(a.text || "")} ${pill}</li>`;
+      }).join("") + `</ul>
+      <div class="btnrow"><button class="btn small primary" data-tab="tarife">Angebote &amp; Buchungszeit</button></div></div>`;
   }
 
   // Preis-Stand-Warnung
@@ -2121,6 +2144,7 @@ function viewOrte() {
       <div><label class="f">Akku netto (kWh)</label><input type="number" step="1" min="10" data-ffeld="akkuNetto" value="${state.fahrzeug.akkuNetto}"></div>
       <div><label class="f">DC-Spitze (kW)</label><input type="number" step="10" min="20" data-ffeld="dcMax" value="${state.fahrzeug.dcMax}"></div>
       <div><label class="f">AC (kW)</label><input type="number" step="1" min="2" data-ffeld="acMax" value="${state.fahrzeug.acMax}"></div>
+      <div><label class="f">Höchstgeschw. (km/h)</label><input type="number" step="5" min="80" data-ffeld="vmax" value="${state.fahrzeug.vmax || 210}"></div>
     </div>
   </details></div>`;
 
@@ -2151,8 +2175,38 @@ function viewOrte() {
 /* ---------- Tarife ---------- */
 function viewTarife() {
   const c = breakEvenChart(state.chartKontext);
-  let html = `<h1>Tarife &amp; Break-even</h1>
-  <div class="card"><h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
+  let html = `<h1>Tarife &amp; Break-even</h1>`;
+
+  // 🏷 Aktuelle Angebote & beste Buchungszeit
+  const aktionen2 = aktuelleAktionen();
+  if (aktionen2.length) {
+    html += `<div class="card"><h2>🏷 Aktuelle Angebote &amp; beste Buchungszeit ${iBtn("ang-hilfe")}</h2>
+      ${iBox("ang-hilfe", "Hier bündelt die App die vom Montags-Update gefundenen, zeitlich begrenzten Anbieter-Aktionen. Grün = läuft schon, Gelb = angekündigt/startet bald. Bei angekündigten Aktionen lohnt es sich oft, mit dem Buchen ein paar Tage zu warten — genau das rechnet dir die App aus.")}`;
+    for (const a of aktionen2) {
+      const tm = aktionTiming(a);
+      const t = a.tarifId ? state.tarife.find(x => x.id === a.tarifId) : null;
+      const habIch = t ? besitzt(t) : false;
+      const farbe = tm.status === "kommt" ? "var(--warn-stripe)" : "var(--good)";
+      let tipp = "";
+      if (tm.status === "laeuft") {
+        tipp = `<span class="pill good">läuft noch ${tm.tage} Tag${tm.tage === 1 ? "" : "e"}${a.bis ? " (bis " + datumDE(a.bis) + ")" : ""}</span>` +
+          (t && !habIch ? ` <b style="color:var(--good)">→ jetzt buchen sichert dir das Angebot${a.spartCt ? " (" + a.spartCt + " ct/kWh günstiger)" : ""}.</b>` : "");
+      } else if (tm.status === "kommt") {
+        tipp = `<span class="pill warn">startet in ${tm.tage} Tag${tm.tage === 1 ? "" : "en"} (${datumDE(a.von)})</span>` +
+          ` <b style="color:var(--warn)">→ mit dem Buchen bis dahin warten${a.spartCt ? ", dann " + a.spartCt + " ct/kWh sparen" : ""}.</b>`;
+      }
+      html += `<div class="card flat" style="border-left:4px solid ${farbe};margin-top:8px">
+        <p><b>${esc(a.anbieter || (t ? t.name : "Anbieter"))}</b>${t ? ` <span class="muted small">(${esc(t.name)})</span>` : ""}${habIch ? ' <span class="pill acc">hast du</span>' : ""}</p>
+        <p class="small">${esc(a.text || "")}</p>
+        <p class="small">${tipp}</p>
+        ${t && t.bestellLink ? `<div class="btnrow"><a class="btn small ${tm.status === "laeuft" && !habIch ? "primary" : "ghost"}" href="${esc(t.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter</a></div>` : ""}
+        ${a.quelle && !(t && t.bestellLink) ? `<p class="small"><a href="${esc(a.quelle)}" target="_blank" rel="noopener">Quelle</a></p>` : ""}
+      </div>`;
+    }
+    html += `<p class="small muted" style="margin-top:8px">Diese Liste aktualisiert sich jeden Montag automatisch. Fehlt ein Angebot, das du kennst? Über „🔬 Neu-Recherche anstoßen" (Start → Daten &amp; Updates) sofort neu suchen lassen.</p></div>`;
+  }
+
+  html += `<div class="card"><h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
     ${iBox("be-hilfe", "Jede Linie = ein Tarif (Grundgebühr + kWh-Preis). Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo. Mit dem Finger über das Diagramm fahren zeigt Preise je Lademenge.")}
     <label class="f">Situation wählen</label>
     <select id="chartctx">${CHART_KONTEXTE.map(k => `<option value="${k.id}" ${k.id === state.chartKontext ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select>
@@ -2314,7 +2368,7 @@ function viewTrips() {
     <details class="plain"><summary>Annahmen anpassen (Ankunfts-%, Tempo, Winter, Beladung)</summary>
       <div class="frow">
         <div><label class="f">Ankunft je Etappe mit mind. (%)</label><input type="number" min="5" max="50" step="5" data-sfeld="ankunftSoc" value="${state.settings.ankunftSoc}"></div>
-        <div><label class="f">Mein Tempo (km/h)</label><input type="number" min="60" max="200" step="5" data-fahrt="tempo" value="${state.fahrt.tempo}"></div>
+        <div><label class="f">Mein Tempo (km/h)</label><input type="number" min="60" max="${state.fahrzeug.vmax || 210}" step="5" data-fahrt="tempo" value="${state.fahrt.tempo}"></div>
         <div><label class="f">Winter?</label><select data-fahrt="winter"><option value="" ${!state.fahrt.winter ? "selected" : ""}>Nein</option><option value="1" ${state.fahrt.winter ? "selected" : ""}>Ja</option></select></div>
         <div><label class="f">Voll beladen?</label><select data-scheckSel="beladen"><option value="1" ${state.settings.beladen ? "selected" : ""}>Ja (+${state.fahrzeug.beladenZuschlag} %)</option><option value="" ${!state.settings.beladen ? "selected" : ""}>Nein</option></select></div>
       </div>
@@ -2366,7 +2420,7 @@ function viewTrips() {
         <div><label class="f">Abfahrtsdatum</label><input type="date" data-trfeld="datum" value="${esc(trip.datum || "")}"></div>
         <div><label class="f">Abfahrt (Uhrzeit)</label><input type="time" data-trfeld="abfahrtZeit" value="${esc(trip.abfahrtZeit || "")}"></div>
         <div><label class="f">Personen (Kostensplit)</label><input type="number" min="1" max="9" data-trfeld="personen" value="${+trip.personen || 1}"></div>
-        <div><label class="f">Tempo (km/h)</label><input type="number" min="60" max="200" step="5" data-trfeld="tempo" value="${+trip.tempo || state.fahrt.tempo}"></div>
+        <div><label class="f">Tempo (km/h)</label><input type="number" min="60" max="${state.fahrzeug.vmax || 210}" step="5" data-trfeld="tempo" value="${+trip.tempo || state.fahrt.tempo}"></div>
         <div><label class="f">Beladen?</label><select data-trfeld="beladen">
           <option value="" ${!trip.beladen ? "selected" : ""}>wie global (${state.settings.beladen ? "ja" : "nein"})</option>
           <option value="1" ${trip.beladen === "1" ? "selected" : ""}>Ja (+${state.fahrzeug.beladenZuschlag} %)</option>
@@ -2505,12 +2559,12 @@ function viewFahren() {
       <div style="flex:1 1 200px">
         <div class="eyebrow">Sicher erreichbar</div>
         <div class="v num" style="font-size:3.4rem;font-weight:800;line-height:1;background:var(--neon);-webkit-background-clip:text;background-clip:text;color:transparent">${n0(fr.sicherKm)} km</div>
-        <p class="small">bei ${fa.tempo} km/h · theor. max. ${n0(fr.maxKm)} km</p>
+        <p class="small">Reichweite bei ${fa.tempo} km/h · theor. max. ${n0(fr.maxKm)} km</p>
       </div>
     </div>
     <div class="frow" style="margin-top:14px">
       <div><label class="f">Akku-%</label><input type="number" min="0" max="100" data-fahrt="soc" value="${fa.soc}"></div>
-      <div><label class="f">Tempo</label><input type="number" min="60" max="200" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
+      <div><label class="f">Tempo</label><input type="number" min="60" max="${state.fahrzeug.vmax || 210}" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
     </div>
     <div class="btnrow"><button class="btn primary" data-action="cockpit-aus">Vollen Fahrmodus öffnen</button></div>
     </div>`;
@@ -2525,7 +2579,7 @@ function viewFahren() {
       ${fa.modus === "soc"
         ? `<div><label class="f">Akkustand (%)</label><input type="number" min="0" max="100" step="1" data-fahrt="soc" value="${fa.soc}"></div>`
         : `<div><label class="f">Rest-km (Anzeige)</label><input type="number" min="0" step="10" data-fahrt="restKm" value="${fa.restKm}"></div>`}
-      <div><label class="f">Mein Tempo (km/h)</label><input type="number" min="60" max="200" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
+      <div><label class="f">Mein Tempo (km/h)</label><input type="number" min="60" max="${state.fahrzeug.vmax || 210}" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
       <div><label class="f">Kälte?</label><select data-fahrt="winter">
         <option value="auto" ${fa.winter === "auto" ? "selected" : ""}>Auto (Wetter)</option>
         <option value="" ${!fa.winter ? "selected" : ""}>Nein</option>

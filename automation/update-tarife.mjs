@@ -47,9 +47,15 @@ Regeln:
    "entfernt" (Array auf oberster Ebene) auflisten.
 5. Setze "preisstand" auf "${heute}".
 6. Aktualisiere "hinweis"-Texte, wenn sich Bedingungen geändert haben (kurz, deutsch).
-7. NEU: Feld "aktionen" (Array, oberste Ebene): aktuell laufende, BELEGTE Rabatt-Aktionen
-   mit Enddatum, z. B. [{"anbieter":"Lidl","text":"DC für 0,27 €/kWh im Juni","bis":"2026-06-30"}].
-   Nur Aktionen, die HEUTE noch laufen; sonst leeres Array.
+7. Feld "aktionen" (Array, oberste Ebene): BELEGTE, zeitlich begrenzte Rabatt-/Sonderaktionen
+   der Anbieter — sowohl aktuell LAUFENDE als auch bereits ANGEKÜNDIGTE kommende. Schema je Eintrag:
+   {"anbieter":"EnBW","tarifId":"enbw-s","text":"Sommeraktion 0,51 statt 0,56 €/kWh","von":"2026-07-01","bis":"2026-09-30","spartCt":5,"quelle":"https://…"}.
+   - "tarifId" wenn zuordenbar (eine der IDs unten), sonst weglassen.
+   - "von"/"bis" als ISO-Datum; "von" darf in der ZUKUNFT liegen (angekündigte Aktion) — die App
+     rät dem Nutzer dann, mit dem Buchen bis zum Start zu warten.
+   - "spartCt": ungefähre Ersparnis in ct/kWh, wenn bekannt.
+   - Nur Aktionen aufnehmen, deren "bis" HEUTE oder später ist. Aktiv per Google-Suche nach
+     aktuellen Ladetarif-Aktionen suchen (electrive, ecomento, Anbieter-Newsrooms). Keine = leeres Array.
 8. NEU: Feld "aenderungen" (Array, oberste Ebene): jede Preis-/Konditionsänderung als
    {"id":"tarif-id","was":"DC-Preis","alt":0.53,"neu":0.55,"quelle":"https://…"} —
    mit der Quellen-URL aus deiner Suche. Keine Änderungen = leeres Array.

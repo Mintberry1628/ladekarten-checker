@@ -23,6 +23,7 @@ const FAHRZEUG_DEFAULT = {
   akkuNetto: 94,        // kWh nutzbar (100 kWh brutto, NMC, 800-V-System)
   dcMax: 400,           // kW Spitze; 10→80 % in ca. 18 min
   acMax: 22,            // kW Onboard-Lader (3-phasig)
+  vmax: 210,            // km/h Höchstgeschwindigkeit (abgeriegelt; 646 PS, 0–100 in 3,8 s)
   verbrauchStadt: 19.5, // kWh/100 km (WLTP 17,4 — wir rechnen bewusst konservativer)
   verbrauchLand: 21.5,
   verbrauchAB: 27.5,    // Autobahn ~130 km/h, leer; "beladen"-Zuschlag kommt on top
@@ -278,6 +279,19 @@ const ORTE_DEFAULT = [
 
 /* ---------- Reiseziele: KEINE Vorgaben — Trips entstehen über den Routen-Planer ---------- */
 const TRIPS_DEFAULT = [];
+
+/* ---------- Aktuelle Anbieter-Aktionen (Startwerte) ----------
+   Wird jeden Montag vom Cloud-Update neu recherchiert und überschrieben.
+   Felder: anbieter, tarifId (optional), text, von/bis (ISO), spartCt (optional), quelle.
+   „von" in der Zukunft = angekündigte Aktion → die App rät, mit dem Buchen zu warten. */
+const AKTIONEN_DEFAULT = [
+  {
+    anbieter: "EnBW", tarifId: "enbw-s",
+    text: "Sommeraktion: 0,51 statt 0,56 €/kWh an EnBW-Säulen (auch M/L je 5 ct günstiger)",
+    von: "2026-07-01", bis: "2026-09-30", spartCt: 5,
+    quelle: "https://www.enbw.com/elektromobilitaet/produkte/ladetarife",
+  },
+];
 
 /* ---------- Ladekurve smart #5 Brabus (Näherung) ----------
    [vonSoC, bisSoC, mittlere Ladeleistung kW] — kalibriert auf 10→80 % ≈ 18 min.
