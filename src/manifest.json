@@ -8,6 +8,7 @@
   "theme_color": "#0C1118",
   "lang": "de",
   "shortcuts": [
+    { "name": "Cockpit: Wie weit komme ich?", "short_name": "Cockpit", "url": "./index.html?go=cockpit" },
     { "name": "Säulen in der Nähe finden", "short_name": "Säulen", "url": "./index.html?go=saeulen" },
     { "name": "Trip planen", "short_name": "Trip", "url": "./index.html?go=trips" },
     { "name": "Blockier-Timer", "short_name": "Timer", "url": "./index.html?go=timer" }

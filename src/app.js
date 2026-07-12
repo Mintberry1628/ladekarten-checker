@@ -59,10 +59,17 @@ function defaultState() {
       einfach: false,                                   // Einfacher Modus (z. B. für Familie)
       ghToken: "",                                      // optional: löst Neu-Recherche auf GitHub aus
       wallboxPreis: 0.30, wallboxAnteil: 80,            // "Was wäre mit Wallbox?"-Rechner
+      pendelKm: 0,                                      // Wochen-Ladeplan: km pro Woche
+      letztesBackup: "",                                // Auto-Backup aufs Pi (wöchentlich)
     },
     fahrt: { modus: "soc", soc: 60, restKm: 250, tempo: 130, winter: false },
     saeulenNotizen: {},                  // Säulen-Gedächtnis: 👍/👎 je Säule (fließt in die Auswahl ein)
+    saeulenFotos: {},                    // Foto-Notizen je Säule (kleine JPEG-Daten, max. 20)
     preisHistorie: [],                   // Wochenstände der Tarifpreise -> Trend-Ansicht
+    preisWuensche: [],                   // Wunsch-Alarme: { netz, art, preis } — geprüft bei jedem Update
+    wunschTreffer: null,                 // erfüllte Wunsch-Alarme (Anzeige auf Start)
+    tarifNotizen: {},                    // je Tarif: { notiz, ablauf } — übersteht Updates
+    tripArchiv: [],                      // Reisetagebuch: abgeschlossene Trips mit Plan/Ist
     planer: { start: "", ziel: "" },     // Routen-Planer: bewusst KEINE Vorgaben
     adressen: [],                        // gespeicherte Adressen (Heim, Arbeit, Urlaub …)
     favoriten: [],                       // gemerkte Ladesäulen
@@ -289,8 +296,8 @@ function aktionen(analyse) {
 function tripAnalyse(trip) {
   const f = state.fahrzeug;
   const kFaktor = kaelteFaktor(trip);
-  const beladenFaktor = state.settings.beladen ? 1 + (f.beladenZuschlag || 8) / 100 : 1;
-  const vAB = f.verbrauchAB * kFaktor * beladenFaktor * (state.kalib.verbrauchFaktor || 1);
+  // Tempo & Beladung dürfen je Trip abweichen (Urlaub voll beladen, Kurztrip nicht)
+  const vAB = verbrauchBeiTempo(tripTempo(trip), kFaktor, tripBeladen(trip));
   const vLokal = ((f.verbrauchStadt + f.verbrauchLand) / 2) * kFaktor * (state.kalib.verbrauchFaktor || 1);
   const akku = f.akkuNetto;
   // Ankunfts-Reserve (Standard 20 %), fürs Planen auf sinnvollen Bereich begrenzt
@@ -519,6 +526,7 @@ function tripCheckliste(trip, ana) {
     const endeIso = d ? addTage(d, (+trip.tageVorOrt || 0) + 2) : null;
     items.push({ when: "Danach", datum: endeIso, text: `${ana.best.tarif.name} wieder kündigen (${endeIso ? datumDE(endeIso) : "nach der Rückkehr"}) — sonst läuft die Grundgebühr weiter.` });
   }
+  items.push({ when: "Danach", datum: d ? addTage(d, (+trip.tageVorOrt || 0) + 1) : null, text: "Ladeziel im Auto wieder auf 80 % stellen — 100 % nur für Langstrecke (schont den Akku)." });
   return items;
 }
 
@@ -593,15 +601,19 @@ function besitzt(t) {
   return t.id === "adhoc" ? true : (t.kategorie === "abo" ? !!state.abos[t.id] : !!state.karten[t.id]);
 }
 // Verbrauch (kWh/100 km) je Ziel-Tempo — Grundlast + Luftwiderstand, kalibriert am 130-km/h-Wert
-function verbrauchBeiTempo(v, winterOderFaktor) {
+function verbrauchBeiTempo(v, winterOderFaktor, beladenOverride) {
   const c130 = state.fahrzeug.verbrauchAB;
   const a = c130 * 0.3876, b = (c130 * 0.6124) / (130 * 130);
   let c = a + b * v * v;
   if (winterOderFaktor === true) c *= 1 + state.fahrzeug.winterZuschlag / 100;
   else if (typeof winterOderFaktor === "number") c *= winterOderFaktor;
-  if (state.settings.beladen) c *= 1 + (state.fahrzeug.beladenZuschlag || 8) / 100;
+  const beladen = beladenOverride != null ? beladenOverride : state.settings.beladen;
+  if (beladen) c *= 1 + (state.fahrzeug.beladenZuschlag || 8) / 100;
   return c * (state.kalib.verbrauchFaktor || 1);
 }
+// Tempo & Beladung je Trip (überschreibt die globalen Annahmen)
+function tripTempo(trip) { return +trip.tempo || state.fahrt.tempo; }
+function tripBeladen(trip) { return trip.beladen === "1" ? true : trip.beladen === "0" ? false : state.settings.beladen; }
 // Kälte-Faktor eines Trips: "auto" nutzt Wetterdaten (falls geholt) oder die Jahreszeit
 function kaelteFaktor(trip) {
   const wz = state.fahrzeug.winterZuschlag / 100;
@@ -689,7 +701,7 @@ function fahrtRechnung() {
     ? Math.min(f.akkuNetto, fa.restKm * vMix / 100)   // Anzeige-km → kWh (Bordcomputer rechnet gemischt)
     : f.akkuNetto * fa.soc / 100;
   const socEff = energie / f.akkuNetto * 100;
-  const verbrauch = verbrauchBeiTempo(fa.tempo, fa.winter);
+  const verbrauch = verbrauchBeiTempo(fa.tempo, fahrtKaelteFaktor());
   const maxKm = energie / verbrauch * 100;
   const res = state.settings.ankunftSoc / 100;
   const sicherKm = Math.max(0, (energie - f.akkuNetto * res) / verbrauch * 100 * (1 - state.settings.puffer / 100));
@@ -852,6 +864,9 @@ async function ocmBesteSaeule(lat, lng, radiusKm) {
         + (k.anz >= 4 ? 0.5 : 0)                            // viele Ladepunkte = weniger Wartezeit
         + (!k.op || /unknown/i.test(k.op) ? -1.5 : 0)       // unbekannter Betreiber = unsicher
         + (notiz === 1 ? 1.5 : notiz === -1 ? -99 : 0);     // Säulen-Gedächtnis: 👍 Bonus, 👎 nie wieder
+      // Warte-Erfahrung: musstest du in diesem Netz öfter warten, sinkt es leicht
+      const wq = netz ? netzWarteQuote(netz) : null;
+      if (wq != null && wq >= 0.5) { k.score -= 0.6; k.warteHinweis = true; }
       // Begründung mitliefern — in der App per „Warum diese Säule?“ nachlesbar
       k.warum = [
         `Leistung ${Math.round(k.kw)} kW → +${stufe} (Stufen: 400er = 10, 350er = 8, 300er = 6, ab 150 = 3)`,
@@ -1010,6 +1025,7 @@ async function routePlanen(altIndex) {
     state.planer.zielErkannt = b.label;
     Object.assign(trip, {
       ziel: (a.kurz || a.label) + (via ? " → " + (via.kurz || via.label) : "") + " → " + (b.kurz || b.label),
+      startQ: state.planer.start, zielQ: state.planer.ziel, viaQ: state.planer.via || "",
       hinKm: Math.round(distKm), laender, anteile, stopps, hoehe, geo,
       startCoord: { lat: a.lat, lng: a.lng }, zielCoord: { lat: b.lat, lng: b.lng },
       fahrzeitMin: Math.round(fahrzeitMin), ankunftFinal,
@@ -1123,7 +1139,7 @@ function stoppsNeuBerechnen(trip) {
   if (!trip.stopps || !trip.stopps.length) return;
   const f = state.fahrzeug;
   const res = Math.min(0.5, Math.max(0.05, state.settings.ankunftSoc / 100));
-  const verbrauch = verbrauchBeiTempo(state.fahrt.tempo, kaelteFaktor(trip));
+  const verbrauch = verbrauchBeiTempo(tripTempo(trip), kaelteFaktor(trip), tripBeladen(trip));
   trip.stopps.sort((a, b) => a.posKm - b.posKm);
   let soc = 100, prev = 0;
   for (const st of trip.stopps) {
@@ -1282,6 +1298,251 @@ function reichweitenKarte(lat, lng, sicherKm, maxKm) {
   <p class="small muted">🟢 Grüner Ring = SICHER erreichbar (${n0(sicherKm)} km) · 🔴 gestrichelt = theoretisches Maximum (${n0(maxKm)} km).</p>`;
 }
 
+/* ---------- Plan vs. Ist: echte Logbuch-Kosten im Reisezeitraum ---------- */
+function tripIst(trip) {
+  if (!trip.datum) return null;
+  const bis = trip.rueckDatum || addTage(trip.datum, +trip.tageVorOrt || 0);
+  const eintraege = state.logbuch.filter(e => e.datum >= trip.datum && e.datum <= addTage(bis, 1));
+  if (!eintraege.length) return null;
+  const s = (f) => eintraege.reduce((x, e) => x + (+e[f] || 0), 0);
+  return { kwh: s("kwh"), eur: s("kosten"), anz: eintraege.length, von: trip.datum, bis };
+}
+
+/* ---------- Säulen-Preisliste („Ladefuchs-Blick“): alle deine Preise hier ---------- */
+function saeulenPreisliste(netzId, art) {
+  const liste = preiseAnNetz(netzId, art).slice(0, 7);
+  if (!liste.length) return '<p class="small muted">Kein Tarif mit Preis an diesem Netz — Betreiber-App oder Ad-hoc.</p>';
+  return `<table style="width:100%">${liste.map((l, i) => `<tr>
+    <td>${i === 0 ? "🥇 " : ""}${esc(kurzName(l.tarif))}${besitzt(l.tarif) ? ' <span class="pill acc">hast du</span>' : ""}${l.tarif.kategorie === "abo" ? ' <span class="pill">Abo</span>' : ""}</td>
+    <td class="num">${ct(l.preis)}${l.unsicher ? " ⚠" : ""}${l.grund ? `<br><span class="small muted">+${eur(l.grund)}/Mon.</span>` : ""}</td>
+  </tr>`).join("")}</table>`;
+}
+
+/* ---------- Pendel-Wochenplan: günstigster Lade-Rhythmus für den Alltag ---------- */
+function wochenPlan() {
+  const km = +state.settings.pendelKm || 0;
+  if (!km) return null;
+  const f = state.fahrzeug;
+  const vMix = (f.verbrauchStadt + f.verbrauchLand) / 2 * (state.kalib.verbrauchFaktor || 1);
+  const kwh = km * vMix / 100;
+  const hub = f.akkuNetto * 0.7; // typische Ladung 10->80 %
+  const ladungen = Math.max(1, Math.ceil(kwh / hub));
+  // Beste Optionen an deinen Orten (nach Preis)
+  const optionen = state.orte.filter(o => o.netz).map(o => ({ ort: o, b: besterPreis(o.netz, o.art, null) }))
+    .filter(x => x.b).sort((a, b) => a.b.preis - b.b.preis);
+  if (!optionen.length) return { km, kwh, ladungen, optionen: [] };
+  const beste = optionen[0];
+  return { km, kwh, ladungen, optionen: optionen.slice(0, 3), kostenBeste: kwh * beste.b.preis };
+}
+
+/* ---------- Warte-Quote je Netz (aus „musste warten“-Häkchen im Logbuch) ---------- */
+function netzWarteQuote(netzId) {
+  const dort = state.logbuch.filter(e => e.netz === netzId);
+  if (dort.length < 2) return null;
+  return dort.filter(e => e.warten).length / dort.length;
+}
+
+/* ---------- Wetter-Automatik im Fahrmodus (aktuelle Temperatur statt Schalter) ---------- */
+let fahrWetter = null; // { temp, stand }
+async function fahrWetterHolen() {
+  try {
+    const pos = state.letzteSuche ? { lat: state.letzteSuche.lat, lng: state.letzteSuche.lng } : { lat: 48.14, lng: 11.58 }; // Fallback München
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.lat}&longitude=${pos.lng}&current_weather=true`);
+    const js = await r.json();
+    if (js.current_weather && js.current_weather.temperature != null) {
+      fahrWetter = { temp: js.current_weather.temperature, stand: new Date().toISOString() };
+      render();
+    }
+  } catch (e) { /* offline — Jahreszeit-Schätzung greift */ }
+}
+function fahrtKaelteFaktor() {
+  const wz = state.fahrzeug.winterZuschlag / 100;
+  const w = state.fahrt.winter;
+  if (w === true || w === "1") return 1 + wz;
+  if (w === "auto") {
+    if (fahrWetter && fahrWetter.temp != null) {
+      const t = fahrWetter.temp;
+      if (t >= 12) return 1;
+      if (t <= 0) return 1 + wz;
+      return 1 + wz * (12 - t) / 12;
+    }
+    const monat = new Date().getMonth() + 1;
+    if ([12, 1, 2].includes(monat)) return 1 + wz;
+    if ([11, 3].includes(monat)) return 1 + wz * 0.6;
+    return 1;
+  }
+  return 1;
+}
+
+/* ---------- Deine Ladekurve als Diagramm (Werkskurve vs. Logbuch-Messungen) ---------- */
+function ladekurveChart() {
+  const messungen = state.logbuch.filter(e => e.socVon != null && e.socBis != null && e.kwh > 3 && e.minuten > 2)
+    .map(e => ({ x: (e.socVon + e.socBis) / 2, kw: e.kwh / (e.minuten / 60), von: e.socVon, bis: e.socBis }));
+  const W = 680, H = 240, padL = 42, padR = 14, padT = 14, padB = 30;
+  const maxKw = Math.max(state.fahrzeug.dcMax || 400, ...messungen.map(m => m.kw)) * 1.08;
+  const X = (soc) => padL + soc / 100 * (W - padL - padR);
+  const Y = (kw) => H - padB - kw / maxKw * (H - padT - padB);
+  let grid = "";
+  for (let kw = 0; kw <= maxKw; kw += 100) grid += `<line x1="${padL}" y1="${Y(kw)}" x2="${W - padR}" y2="${Y(kw)}" stroke="var(--grid)"/><text x="${padL - 5}" y="${Y(kw) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${kw}</text>`;
+  for (let s = 0; s <= 100; s += 20) grid += `<text x="${X(s)}" y="${H - padB + 15}" text-anchor="middle" font-size="10" fill="var(--muted)">${s} %</text>`;
+  // Werkskurve (gedeckelt auf dcMax des Fahrzeugs)
+  let pfad = "";
+  for (const [s0, s1, kw] of LADEKURVE) {
+    const k = Math.min(kw, state.fahrzeug.dcMax || 9999);
+    pfad += `M ${X(s0)} ${Y(k)} L ${X(s1)} ${Y(k)} `;
+  }
+  const punkte = messungen.map(m => `<line x1="${X(m.von)}" y1="${Y(m.kw)}" x2="${X(m.bis)}" y2="${Y(m.kw)}" stroke="var(--neon1)" stroke-width="3" stroke-linecap="round" opacity="0.85"/>`).join("");
+  return `<div class="chartbox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Ladekurve">
+    ${grid}
+    <path d="${pfad}" stroke="var(--muted)" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+    ${punkte}
+  </svg></div>
+  <p class="small muted">Gestrichelt = Werkskurve deines Autos · farbige Striche = deine echten Ladungen (Ø-Leistung über das jeweilige SoC-Fenster). Je mehr Ladungen mit „Akku von→bis“, desto klarer siehst du, was dein #5 real leistet.</p>`;
+}
+
+/* ---------- 12-Monats-Kosten (Balken aus dem Logbuch) ---------- */
+function monatsChart() {
+  const jetzt = new Date();
+  const monate = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(jetzt.getFullYear(), jetzt.getMonth() - i, 1);
+    monate.push(d.toISOString().slice(0, 7));
+  }
+  const daten = monate.map(m => {
+    const im = state.logbuch.filter(e => (e.datum || "").startsWith(m));
+    return { m, eur: im.reduce((s, e) => s + (+e.kosten || 0), 0), kwh: im.reduce((s, e) => s + (+e.kwh || 0), 0) };
+  });
+  if (!daten.some(d => d.eur > 0)) return "";
+  const W = 680, H = 200, padL = 40, padB = 26, padT = 12;
+  const maxE = Math.max(...daten.map(d => d.eur)) * 1.1;
+  const bw = (W - padL - 10) / 12;
+  let svg = "";
+  daten.forEach((d, i) => {
+    const h = d.eur / maxE * (H - padT - padB);
+    svg += `<rect x="${padL + i * bw + 3}" y="${H - padB - h}" width="${bw - 6}" height="${Math.max(1, h)}" rx="4" fill="${i === 11 ? "var(--neon1)" : "var(--s5)"}" opacity="${d.eur ? 0.9 : 0.25}"/>`;
+    svg += `<text x="${padL + i * bw + bw / 2}" y="${H - padB + 14}" text-anchor="middle" font-size="9" fill="var(--muted)">${d.m.slice(5)}</text>`;
+    if (d.eur > 0) svg += `<text x="${padL + i * bw + bw / 2}" y="${H - padB - h - 4}" text-anchor="middle" font-size="9" fill="var(--ink2)">${Math.round(d.eur)}</text>`;
+  });
+  return `<div class="chartbox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monatskosten">${svg}</svg></div>
+  <p class="small muted">€ pro Monat aus deinem Logbuch (letzte 12 Monate).</p>`;
+}
+
+/* ---------- Störungs-Radar: Defekt-Meldungen an deinen geplanten Stopps ---------- */
+let stoerungLauf = null;
+async function routeStoerungen(trip) {
+  const key = (state.settings.ocmKey || "").trim();
+  if (!key) { alert("Braucht den OpenChargeMap-Key (unter Fahren)."); return; }
+  stoerungLauf = trip.id; render();
+  const liste = [];
+  for (const st of (trip.stopps || []).filter(x => x.id && String(x.id).startsWith("ocm")).slice(0, 6)) {
+    try {
+      const r = await fetch(`https://api.openchargemap.io/v3/poi/?output=json&chargepointid=${String(st.id).slice(3)}&includecomments=true&key=${encodeURIComponent(key)}`);
+      const js = await r.json();
+      const p = js && js[0];
+      if (p) {
+        const komm = (p.UserComments || []).filter(k => (new Date() - new Date(k.DateCreated)) / 864e5 <= 7);
+        const defekt = p.StatusType && p.StatusType.IsOperational === false;
+        if (defekt || komm.length) liste.push({ name: st.name, defekt, kommentar: komm[0] ? (komm[0].Comment || komm[0].CheckinStatusType && komm[0].CheckinStatusType.Title || "").slice(0, 110) : "" });
+      }
+    } catch (e) { /* Stopp überspringen */ }
+    await sleep(300);
+  }
+  trip.stoerungen = { stand: new Date().toISOString(), liste };
+  stoerungLauf = null;
+  save(); render();
+}
+
+/* ---------- Jahresrückblick als teilbares Bild (Canvas) ---------- */
+function jahresbild() {
+  const stat = logbuchStatistik();
+  if (!stat) { alert("Noch keine Ladungen im Logbuch — das Bild kommt, sobald du geladen hast."); return; }
+  const jahr = new Date().getFullYear();
+  const netze = {};
+  state.logbuch.forEach(e => { netze[e.netz] = (netze[e.netz] || 0) + 1; });
+  const topNetz = Object.entries(netze).sort((a, b) => b[1] - a[1])[0];
+  const c = document.createElement("canvas"); c.width = 1000; c.height = 1000;
+  const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 1000, 1000);
+  grad.addColorStop(0, "#04060B"); grad.addColorStop(1, "#131B2A");
+  g.fillStyle = grad; g.fillRect(0, 0, 1000, 1000);
+  const neon = g.createLinearGradient(0, 0, 1000, 0);
+  neon.addColorStop(0, "#38BDF8"); neon.addColorStop(1, "#8B5CF6");
+  g.fillStyle = neon; g.fillRect(0, 0, 1000, 14); g.fillRect(0, 986, 1000, 14);
+  g.fillStyle = "#E9EEF4"; g.font = "700 64px Segoe UI, sans-serif";
+  g.fillText("⚡ Mein Lade-Jahr " + jahr, 70, 140);
+  g.font = "400 30px Segoe UI, sans-serif"; g.fillStyle = "#9AAABB";
+  g.fillText(state.fahrzeug.name, 70, 190);
+  const zeile = (y, wert, label) => {
+    g.fillStyle = neon; g.font = "800 88px Segoe UI, sans-serif"; g.fillText(wert, 70, y);
+    g.fillStyle = "#9AAABB"; g.font = "400 32px Segoe UI, sans-serif"; g.fillText(label, 70, y + 44);
+  };
+  zeile(330, n0(stat.kwhG) + " kWh", "geladen in " + stat.anz + " Ladungen");
+  zeile(510, eur(stat.eurG, 0), "Stromkosten · Ø " + (stat.schnittG != null ? stat.schnittG.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "–") + " €/kWh");
+  zeile(690, eur(Math.max(0, stat.benzinVergleich || 0), 0), "gespart gegenüber Benziner");
+  zeile(870, n0(Math.max(0, stat.co2Gespart || 0)) + " kg CO₂", "vermieden" + (topNetz ? " · Lieblings-Netz: " + netzKurz(topNetz[0]) : ""));
+  c.toBlob(blob => {
+    const datei = new File([blob], "lade-jahr-" + jahr + ".png", { type: "image/png" });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [datei] })) {
+      navigator.share({ files: [datei], title: "Mein Lade-Jahr" }).catch(() => { });
+    } else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = datei.name; a.click(); URL.revokeObjectURL(a.href);
+    }
+  }, "image/png");
+}
+
+/* ---------- Reisemappe drucken (fürs Handschuhfach) ---------- */
+function druckReisemappe(trip) {
+  const ana = tripAnalyse(trip);
+  const cl = tripCheckliste(trip, ana);
+  const zt = stoppZeiten(trip);
+  const zeile = (l, r) => `<tr><td>${l}</td><td style="text-align:right">${r}</td></tr>`;
+  const html = `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Reisemappe ${esc(trip.ziel)}</title>
+    <style>body{font-family:system-ui,Segoe UI,sans-serif;max-width:720px;margin:20px auto;padding:0 16px;color:#111}
+    h1{font-size:20px} h2{font-size:15px;margin-top:20px;border-bottom:2px solid #38BDF8;padding-bottom:3px}
+    table{width:100%;border-collapse:collapse;font-size:13px} td{padding:4px 6px;border-bottom:1px solid #ddd;vertical-align:top}
+    .stopp{background:#f4f7fb;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:13px}
+    .chk{margin:3px 0;font-size:13px} .muted{color:#666;font-size:12px}</style></head><body>
+    <h1>🚗 Reisemappe: ${esc(trip.ziel)}</h1>
+    <p class="muted">${trip.datum ? "Abfahrt " + datumDE(trip.datum) + (trip.abfahrtZeit ? " um " + trip.abfahrtZeit + " Uhr" : "") : ""} · ${state.fahrzeug.name} · Stand ${datumDE(heute())}</p>
+    <h2>Überblick</h2><table>
+    ${zeile("Strecke (einfach)", n0(trip.hinKm) + " km")}
+    ${zeile("Ladestopps pro Richtung", ana.stopsProRichtung)}
+    ${zeile("Reine Fahrzeit", trip.fahrzeitMin ? Math.floor(trip.fahrzeitMin / 60) + " h " + Math.round(trip.fahrzeitMin % 60) + " min" : "–")}
+    ${zeile("Ankunft am Ziel", (trip.ankunftFinal != null ? trip.ankunftFinal + " % Akku" : "–") + (zt ? " · ~" + zt.ziel + " Uhr" : ""))}
+    ${zeile("Strom gesamt (Schätzung)", eur(ana.gesamt))}
+    ${ana.best ? zeile("Empfohlene Karte", esc(ana.best.label.split(" — ")[0])) : ""}
+    </table>
+    <h2>Ladestopps (Hinfahrt)</h2>
+    ${(trip.stopps || []).map((st, i) => `<div class="stopp"><b>${i + 1}. ${esc(st.name)}</b> — km ${n0(st.posKm)}${zt ? " · " + zt.stopps[i].an + "–" + zt.stopps[i].ab + " Uhr" : ""}<br>
+      Ankunft ~${st.ankunftSoc} %, laden auf ${st.zielSoc} % (~${st.ladeMin} min, ${st.kwh} kWh)${st.kw ? " · " + n0(st.kw) + " kW" : ""}${st.op ? " · " + esc(st.op) : ""}<br>
+      <span class="muted">${esc(st.adresse || "")}</span></div>`).join("")}
+    <h2>Checkliste</h2>
+    ${cl.map(item => `<div class="chk">☐ <b>${esc(item.when)}:</b> ${esc(item.text)}</div>`).join("")}
+    <h2>Länder auf der Route</h2>
+    ${(trip.laender || []).map(l => { const L = LAENDER[l]; return L ? `<p style="font-size:13px"><b>${esc(L.name)}:</b> ${esc(L.laden)} ${L.extras.length ? "— " + esc(L.extras[0]) : ""}</p>` : ""; }).join("")}
+    <p class="muted" style="margin-top:24px">Erstellt mit dem Ladekarten-Checker. Alle Angaben ohne Gewähr — Preis an der Säule gilt.</p>
+    <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+    </body></html>`;
+  const w = window.open("", "_blank");
+  if (w) { w.document.write(html); w.document.close(); }
+  else alert("Bitte Pop-ups für diese Seite erlauben — dann öffnet sich die Reisemappe zum Drucken/als PDF speichern.");
+}
+
+/* ---------- Auto-Backup aufs Pi (wöchentlich, still) ---------- */
+async function profilSichernStill() {
+  try {
+    const name = profilName();
+    if (!name) return;
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+    const r = await fetch("/api/webhook/" + encodeURIComponent(state.settings.webhookId || "lkc-profil-sichern"), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profil: name, b64 }),
+    });
+    if (r.ok) { state.settings.letztesBackup = heute(); save(); }
+  } catch (e) { /* nicht auf dem Pi / offline — nächstes Mal */ }
+}
+
 /* ---------- Sprachausgabe (Fahrmodus) ---------- */
 function sprechen(text) {
   try {
@@ -1386,6 +1647,18 @@ function applyTarifUpdate() {
   const hist = { stand: updateInfo.preisstand, preise: {} };
   for (const t of updateInfo.tarife) { const mp = minPreis(t); if (mp != null) hist.preise[t.id] = mp; }
   state.preisHistorie = (state.preisHistorie || []).filter(h => h.stand !== hist.stand).concat(hist).slice(-26);
+  // Preis-Wunsch-Alarme prüfen (temporär die neuen Tarife in die Preisabfrage geben)
+  if ((state.preisWuensche || []).length) {
+    const alteTarife = state.tarife;
+    state.tarife = updateInfo.tarife;
+    const treffer = [];
+    for (const w of state.preisWuensche) {
+      const b = besterPreis(w.netz, w.art, null);
+      if (b && b.preis <= w.preis) treffer.push({ netz: w.netz, art: w.art, wunsch: w.preis, ist: b.preis, name: b.name });
+    }
+    state.tarife = alteTarife;
+    if (treffer.length) state.wunschTreffer = { stand: updateInfo.preisstand, liste: treffer };
+  }
   for (const neu of updateInfo.tarife) {
     const i = state.tarife.findIndex(t => t.id === neu.id);
     if (i >= 0) { if (!state.tarife[i].editiert) state.tarife[i] = neu; }
@@ -1629,6 +1902,12 @@ function viewStart() {
       <p class="small">Alle Empfehlungen und To-dos sind bereits mit den neuen Preisen berechnet.</p>
       <div class="btnrow"><button class="btn small" data-action="preisalarm-weg">Verstanden</button></div></div>`;
   }
+  // Preis-Wunsch-Alarm erfüllt
+  if (state.wunschTreffer && state.wunschTreffer.liste && state.wunschTreffer.liste.length) {
+    html += `<div class="card alert good"><h3>🔔 Dein Preis-Wunsch ist erfüllt!</h3>
+      <ul class="clean">${state.wunschTreffer.liste.map(w => `<li><b>${esc(netzKurz(w.netz))} ${w.art.toUpperCase()}</b>: ${esc(w.name)} bietet <b>${ct(w.ist)}</b> (dein Wunsch: unter ${ct(w.wunsch)})</li>`).join("")}</ul>
+      <div class="btnrow"><button class="btn small" data-action="wunschtreffer-weg">Verstanden</button></div></div>`;
+  }
   // Kälte-Check kurz vor einem Trip (Wetterdaten werden beim App-Start aufgefrischt)
   for (const trK of state.trips) {
     if (!trK.datum) continue;
@@ -1700,6 +1979,7 @@ function viewStart() {
       ${stat.verbrauchEcht != null ? `<p class="small">Echter Ø-Verbrauch aus deinen km-Angaben: <b>${n1(stat.verbrauchEcht)} kWh/100 km</b>.</p>` : ""}
       ${stat.co2Gespart != null ? `<p class="small">🌱 Seit Beginn: ~<b>${n0(stat.co2Gespart)} kg CO₂</b> und <b>${eur(stat.benzinVergleich, 0)}</b> gespart gegenüber einem Benziner.</p>` : ""}
       ${stat.kapazitaet != null ? `<p class="small">🔋 Akku-Gesundheit (grobe Schätzung aus ${stat.kapMessungen} Ladungen mit SoC-Angabe, inkl. Ladeverlusten): Ø <b>${n1(stat.kapazitaet)} kWh</b> nutzbar ≈ <b>${n0(stat.kapazitaet / state.fahrzeug.akkuNetto * 100)} %</b> vom Neuwert (${state.fahrzeug.akkuNetto} kWh).</p>` : ""}
+      <div class="btnrow"><button class="btn small" data-action="jahresbild">📸 Lade-Jahr als Bild teilen</button></div>
     </details></div>`;
   }
 
@@ -1812,7 +2092,21 @@ function viewOrte() {
       <div class="btnrow"><button class="del" data-action="ort-weg" data-id="${ort.id}">Ort entfernen</button></div>
     </div>`;
   }
-  html += `<div class="btnrow"><button class="btn primary" data-action="ort-neu">+ Ort hinzufügen</button></div>
+  html += `<div class="btnrow"><button class="btn primary" data-action="ort-neu">+ Ort hinzufügen</button></div>`;
+
+  // Pendel-Wochenplan: günstigster Lade-Rhythmus für wiederkehrende Wochen-km
+  const wp = wochenPlan();
+  html += `<div class="card flat"><details class="plain" ${wp ? "" : ""}><summary>🔄 Wochen-Ladeplan (Pendeln)${wp ? ` — ~${eur(wp.kostenBeste || 0, 0)}/Woche` : ""}</summary>
+    <p class="small muted">Trag ein, wie viel du in einer typischen Woche fährst — die App schlägt den günstigsten Lade-Rhythmus an deinen Orten vor.</p>
+    <div class="frow" style="align-items:flex-end">
+      <div><label class="f">km pro Woche</label><input type="number" min="0" step="10" data-sfeld="pendelKm" value="${state.settings.pendelKm || 0}"></div>
+    </div>
+    ${wp && wp.optionen.length ? `<div class="calcbox">
+      <div class="line"><span>Bedarf</span><span>${n0(wp.kwh)} kWh/Woche ≈ ${wp.ladungen} Ladung${wp.ladungen === 1 ? "" : "en"} (10→80 %)</span></div>
+      ${wp.optionen.map((o, i) => `<div class="line"><span>${i === 0 ? "🥇 " : ""}${esc(o.ort.name)} (${esc(o.b.name)})</span><span>${ct(o.b.preis)} → ${eur(wp.kwh * o.b.preis)}/Woche</span></div>`).join("")}
+      <div class="line total"><span>Empfehlung: ${wp.ladungen}× die Woche an „${esc(wp.optionen[0].ort.name)}“</span><span>${eur(wp.kostenBeste)}/Woche</span></div>
+    </div>` : wp ? `<p class="small">Erst Orte mit Netz eintragen — dann kommt der Rhythmus-Vorschlag.</p>` : ""}
+  </details></div>
   <div class="card flat"><details class="plain"><summary>⚙️ Annahmen (Steckdosen-Preis, Verbrauch, Winter-Zuschlag)</summary>
     <div class="frow">
       <div><label class="f">Strompreis an der Steckdose (€/kWh)</label><input type="number" step="0.01" min="0" data-sfeld="schukoPreis" value="${state.settings.schukoPreis}"></div>
@@ -1930,6 +2224,18 @@ function viewTarife() {
     html += `</details></div>`;
   }
 
+  // Preis-Wunsch-Alarm: "melde dich, wenn jemand unter X anbietet"
+  html += `<div class="card flat"><details class="plain"><summary>🔔 Preis-Wunsch-Alarm (${(state.preisWuensche || []).length})</summary>
+    <p class="small muted">Die App prüft bei jedem Montags-Update, ob ein Tarif deinen Wunschpreis an einem Netz unterbietet — und meldet es dir auf der Startseite.</p>
+    ${(state.preisWuensche || []).map((w, i) => `<div class="kv" style="margin:4px 0"><span class="k small">${esc(netzKurz(w.netz))} ${w.art.toUpperCase()} unter <b>${ct(w.preis)}</b></span><button class="del" data-action="wunsch-weg" data-i="${i}">✕</button></div>`).join("")}
+    <div class="frow" style="align-items:flex-end;margin-top:6px">
+      <div><label class="f">Netz</label><select id="wunsch-netz">${NETZE.filter(n => n.id !== "schuko").map(n => `<option value="${n.id}">${esc(n.kurz)}</option>`).join("")}</select></div>
+      <div><label class="f">AC/DC</label><select id="wunsch-art"><option value="dc">DC</option><option value="ac">AC</option></select></div>
+      <div><label class="f">unter (€/kWh)</label><input type="number" step="0.01" min="0.05" max="1.5" id="wunsch-preis" placeholder="0,50"></div>
+      <div><button class="btn small" data-action="wunsch-neu" style="width:100%">+ Alarm</button></div>
+    </div>
+  </details></div>`;
+
   const gruppen = [["frei", "🆓 Ohne Grundgebühr — kosten nichts, solange du nicht lädst"], ["abo", "📅 Abos — nur in Monaten buchen, in denen sie sich rechnen"], ["adhoc", "💳 Ohne alles"]];
   for (const [kat, titel] of gruppen) {
     html += `<h2 style="margin-top:20px">${titel}</h2><div class="grid cols2">`;
@@ -1951,7 +2257,12 @@ function viewTarife() {
           ${t.blockier ? `<p class="small muted">Standzeit: ${esc(t.blockier)}</p>` : ""}
           ${t.jahresAlternative ? `<p class="small muted">Alternative: ${esc(t.jahresAlternative)}</p>` : ""}
           ${t.bestellLink ? `<p class="small"><a href="${esc(t.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter — bestellen / Preis gegenprüfen</a></p>` : ""}
+          <div class="frow" style="margin-top:6px">
+            <div style="flex:2 1 160px"><label class="f">Deine Notiz (Kartennr., Login …)</label><input type="text" data-tnotiz="${t.id}" value="${esc((state.tarifNotizen[t.id] || {}).notiz || "")}" placeholder="z. B. Karte endet auf 4821"></div>
+            <div style="flex:1 1 110px"><label class="f">Läuft ab (optional)</label><input type="month" data-tablauf="${t.id}" value="${esc((state.tarifNotizen[t.id] || {}).ablauf || "")}"></div>
+          </div>
         </details>
+        ${(() => { const n = state.tarifNotizen[t.id]; if (n && n.ablauf) { const abl = new Date(n.ablauf + "-01T12:00:00"); const restTage = Math.round((abl - new Date()) / 864e5); if (restTage < 60) return `<p class="small" style="color:var(--warn)">⏳ Karte läuft ${restTage < 0 ? "seit " + datumDE(n.ablauf + "-01") + " ab!" : "bald ab (" + n.ablauf + ") — Ersatz bestellen"}</p>`; } return ""; })()}
         <div class="btnrow">
           <button class="btn small ${hat ? "" : "primary"}" data-action="${kat === "abo" ? (hat ? "abo-aus" : "abo-an") : (hat ? "karte-weg" : "karte-da")}" data-id="${t.id}">${kat === "abo" ? (hat ? "Als gekündigt markieren" : "Als abonniert markieren") : (hat ? "Hab ich doch nicht" : "Hab ich / eingerichtet")}</button>
           <button class="btn small ghost" data-action="tarif-edit" data-id="${t.id}">Preise ändern</button>
@@ -2055,6 +2366,11 @@ function viewTrips() {
         <div><label class="f">Abfahrtsdatum</label><input type="date" data-trfeld="datum" value="${esc(trip.datum || "")}"></div>
         <div><label class="f">Abfahrt (Uhrzeit)</label><input type="time" data-trfeld="abfahrtZeit" value="${esc(trip.abfahrtZeit || "")}"></div>
         <div><label class="f">Personen (Kostensplit)</label><input type="number" min="1" max="9" data-trfeld="personen" value="${+trip.personen || 1}"></div>
+        <div><label class="f">Tempo (km/h)</label><input type="number" min="60" max="200" step="5" data-trfeld="tempo" value="${+trip.tempo || state.fahrt.tempo}"></div>
+        <div><label class="f">Beladen?</label><select data-trfeld="beladen">
+          <option value="" ${!trip.beladen ? "selected" : ""}>wie global (${state.settings.beladen ? "ja" : "nein"})</option>
+          <option value="1" ${trip.beladen === "1" ? "selected" : ""}>Ja (+${state.fahrzeug.beladenZuschlag} %)</option>
+          <option value="0" ${trip.beladen === "0" ? "selected" : ""}>Nein</option></select></div>
         <div><label class="f">Rückreisedatum</label><input type="date" data-trfeld="rueckDatum" value="${esc(trip.rueckDatum || "")}"></div>
         <div><label class="f">…oder Tage vor Ort</label><input type="number" min="0" data-trfeld="tageVorOrt" value="${trip.tageVorOrt}"></div>
         <div><label class="f">km vor Ort</label><input type="number" min="0" step="25" data-trfeld="kmVorOrt" value="${trip.kmVorOrt}"></div>
@@ -2073,7 +2389,22 @@ function viewTrips() {
         ${trip.startCoord ? `<a class="btn small" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&origin=${trip.startCoord.lat},${trip.startCoord.lng}&destination=${trip.zielCoord.lat},${trip.zielCoord.lng}${trip.stopps && trip.stopps.length ? "&waypoints=" + trip.stopps.map(s => s.lat + "," + s.lng).join("%7C") : ""}">🗺 Ganze Route mit Stopps in Google Maps</a>` : ""}
         <button class="btn small" data-action="trip-teilen" data-id="${trip.id}">📤 Trip teilen (WhatsApp)</button>
         <button class="btn small ghost" data-action="trip-fahrplan-ics" data-id="${trip.id}">📅 Fahrplan in Kalender</button>
+        ${trip.startQ && trip.zielQ ? `<button class="btn small ghost" data-action="trip-retour" data-id="${trip.id}">↩ Rückroute planen</button>` : ""}
+        <button class="btn small ghost" data-action="trip-druck" data-id="${trip.id}">🖨 Reisemappe</button>
+        ${trip.stopps && trip.stopps.length ? `<button class="btn small ghost" data-action="trip-stoerung" data-id="${trip.id}" ${stoerungLauf ? "disabled" : ""}>${stoerungLauf === trip.id ? "⏳ prüft Stopps …" : "🩺 Störungs-Check"}</button>` : ""}
       </div>
+      ${trip.stoerungen ? (trip.stoerungen.liste.length ? `<div class="card flat alert" style="margin-top:8px"><p class="small"><b>🩺 Meldungen der letzten 7 Tage an deinen Stopps:</b></p>
+        <ul class="dots small">${trip.stoerungen.liste.map(sM => `<li><b>${esc(sM.name)}</b>${sM.defekt ? ' <span class="pill crit">außer Betrieb</span>' : ""}${sM.kommentar ? " — „" + esc(sM.kommentar) + "“" : ""}</li>`).join("")}</ul>
+        <p class="small muted">Tipp: betroffenen Stopp mit „25 km früher/später“ verschieben — die App sucht automatisch eine andere Säule.</p></div>`
+        : `<p class="small" style="color:var(--good)">🩺 Keine Störungs-Meldungen der letzten 7 Tage an deinen Stopps (geprüft ${new Date(trip.stoerungen.stand).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" })}).</p>`) : ""}
+      ${(() => {
+        if (!trip.datum) return "";
+        const bisI = trip.rueckDatum || addTage(trip.datum, +trip.tageVorOrt || 0);
+        if (bisI >= heute()) return "";
+        const ist = tripIst(trip);
+        return `<div class="card flat alert ${ist ? "good" : "info"}" style="margin-top:8px"><p class="small"><b>Reise vorbei.</b> ${ist ? `Geplant waren ${eur(ana.gesamt, 0)} — <b>echt bezahlt: ${eur(ist.eur, 0)}</b> (${n0(ist.kwh)} kWh in ${ist.anz} Ladungen, ${datumDE(ist.von)}–${datumDE(ist.bis)}).` : "Trag deine Ladungen im Logbuch ein — dann vergleicht die App Plan und Wirklichkeit."}</p>
+        <div class="btnrow"><button class="btn small primary" data-action="trip-archiv" data-id="${trip.id}">📦 Ins Reisetagebuch verschieben</button></div></div>`;
+      })()}
       <hr class="divider">
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
         <div style="flex:0 0 110px">${ringSvg(trip.ankunftFinal, (trip.ankunftFinal != null ? trip.ankunftFinal : "?") + " %", "Ankunft am Ziel", trip.ankunftFinal != null && trip.ankunftFinal < state.settings.ankunftSoc ? "var(--warn-stripe)" : "var(--good)")}</div>
@@ -2137,6 +2468,16 @@ function viewTrips() {
     </div>`;
   }
   html += `<div class="btnrow"><button class="btn primary" data-action="trip-neu">+ Neues Ziel planen</button></div>`;
+  // Reisetagebuch: archivierte Trips mit Plan/Ist und Jahres-Summen
+  if ((state.tripArchiv || []).length) {
+    const sumIst = state.tripArchiv.reduce((s, a) => s + (a.ist != null ? a.ist : a.plan || 0), 0);
+    const sumKm = state.tripArchiv.reduce((s, a) => s + 2 * (a.hinKm || 0), 0);
+    html += `<div class="card flat"><details class="plain"><summary>🧳 Reisetagebuch (${state.tripArchiv.length} Reise${state.tripArchiv.length === 1 ? "" : "n"} · ~${n0(sumKm)} km · ${eur(sumIst, 0)})</summary>
+      <div class="tblwrap"><table><tr><th>Reise</th><th>Datum</th><th class="num">km</th><th class="num">Plan</th><th class="num">Ist</th><th></th></tr>
+      ${state.tripArchiv.map((aA, i) => `<tr><td>${esc(aA.ziel)}</td><td>${datumDE(aA.datum)}</td><td class="num">${n0(aA.hinKm || 0)}</td><td class="num">${aA.plan != null ? eur(aA.plan, 0) : "–"}</td><td class="num">${aA.ist != null ? eur(aA.ist, 0) : "–"}</td>
+      <td><button class="del" data-action="archiv-weg" data-i="${i}">✕</button></td></tr>`).join("")}
+      </table></div></details></div>`;
+  }
   return html;
 }
 
@@ -2157,6 +2498,23 @@ function viewFahren() {
   const hub = f.akkuNetto * 0.6; // 20 -> 80 %
   const fr = fahrtRechnung();
   const fa = state.fahrt;
+  // Cockpit-Kurzmodus (App-Shortcut fürs Auto): nur die eine große Antwort
+  if (state.cockpit) {
+    return `<div class="drive"><div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <div style="flex:0 0 150px">${ringSvg(fr.socEff, n0(fr.socEff) + " %", n0(fr.energie) + " kWh", fr.socEff <= 20 ? "var(--crit)" : fr.socEff <= 40 ? "var(--warn-stripe)" : "var(--good)")}</div>
+      <div style="flex:1 1 200px">
+        <div class="eyebrow">Sicher erreichbar</div>
+        <div class="v num" style="font-size:3.4rem;font-weight:800;line-height:1;background:var(--neon);-webkit-background-clip:text;background-clip:text;color:transparent">${n0(fr.sicherKm)} km</div>
+        <p class="small">bei ${fa.tempo} km/h · theor. max. ${n0(fr.maxKm)} km</p>
+      </div>
+    </div>
+    <div class="frow" style="margin-top:14px">
+      <div><label class="f">Akku-%</label><input type="number" min="0" max="100" data-fahrt="soc" value="${fa.soc}"></div>
+      <div><label class="f">Tempo</label><input type="number" min="60" max="200" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
+    </div>
+    <div class="btnrow"><button class="btn primary" data-action="cockpit-aus">Vollen Fahrmodus öffnen</button></div>
+    </div>`;
+  }
   let html = `<div class="drive">
   <h1>🚗 Fahrmodus</h1>
   <p class="small"><b>Nur im Stand oder vom Beifahrer bedienen.</b></p>
@@ -2168,14 +2526,17 @@ function viewFahren() {
         ? `<div><label class="f">Akkustand (%)</label><input type="number" min="0" max="100" step="1" data-fahrt="soc" value="${fa.soc}"></div>`
         : `<div><label class="f">Rest-km (Anzeige)</label><input type="number" min="0" step="10" data-fahrt="restKm" value="${fa.restKm}"></div>`}
       <div><label class="f">Mein Tempo (km/h)</label><input type="number" min="60" max="200" step="5" data-fahrt="tempo" value="${fa.tempo}"></div>
-      <div><label class="f">Winter?</label><select data-fahrt="winter"><option value="" ${!fa.winter ? "selected" : ""}>Nein</option><option value="1" ${fa.winter ? "selected" : ""}>Ja</option></select></div>
+      <div><label class="f">Kälte?</label><select data-fahrt="winter">
+        <option value="auto" ${fa.winter === "auto" ? "selected" : ""}>Auto (Wetter)</option>
+        <option value="" ${!fa.winter ? "selected" : ""}>Nein</option>
+        <option value="1" ${fa.winter === true ? "selected" : ""}>Ja (Winter)</option></select></div>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:12px">
       <div style="flex:0 0 110px">${ringSvg(fr.socEff, n0(fr.socEff) + " %", n0(fr.energie) + " kWh", fr.socEff <= 20 ? "var(--crit)" : fr.socEff <= 40 ? "var(--warn-stripe)" : "var(--good)")}</div>
       <div class="socgrid" style="flex:1 1 240px;margin-top:0">
         <div class="s"><div class="v num">${n0(fr.sicherKm)} km</div><div class="l">SICHER erreichbar (bis ${state.settings.ankunftSoc} % + ${state.settings.puffer} % Puffer)</div></div>
         <div class="s"><div class="v num">${n0(fr.maxKm)} km</div><div class="l">theoretisch maximal</div></div>
-        <div class="s"><div class="v num">${n1(fr.verbrauch)}</div><div class="l">kWh/100 km bei ${fa.tempo} km/h${fa.winter ? " (Winter)" : ""}</div></div>
+        <div class="s"><div class="v num">${n1(fr.verbrauch)}</div><div class="l">kWh/100 km bei ${fa.tempo} km/h${fa.winter === "auto" ? (fahrWetter ? ` · 🌡 ${Math.round(fahrWetter.temp)} °C` : " · 🌡 auto") : fa.winter ? " (Winter)" : ""}</div></div>
       </div>
     </div>
     <details class="plain"><summary>Was heißt „SICHER“? (Reserve + Sicherheitspuffer erklärt)</summary>
@@ -2278,6 +2639,7 @@ function viewFahren() {
       <div><label class="f">km seit letztem Laden <span class="muted">(optional)</span></label><input type="number" id="log-km" min="0" step="10" placeholder="230"></div>
       <div><label class="f">Akku von → bis % <span class="muted">(optional)</span></label><div style="display:flex;gap:6px"><input type="number" id="log-socv" min="0" max="100" placeholder="20"><input type="number" id="log-socb" min="0" max="100" placeholder="80"></div></div>
     </div>
+    <label style="display:flex;gap:8px;align-items:center;cursor:pointer;margin-top:8px"><input type="checkbox" id="log-warten"> <span class="small">Musste warten (Säule war besetzt) — fließt ins Säulen-Gedächtnis ein</span></label>
     <div class="btnrow"><button class="btn primary small" data-action="log-neu">＋ Ladung speichern</button>${state.logbuch.length ? '<button class="btn small ghost" data-action="log-csv">⬇ Als Excel/CSV</button>' : ""}
       ${fahrtRekorder ? `<span class="pill good">🛰 Aufzeichnung: <b id="rek-km">${n0(fahrtRekorder.km)} km</b></span><button class="btn small" data-action="rek-stop">■ km übernehmen</button>` : `<button class="btn small ghost" data-action="rek-start" title="zählt die gefahrenen km per GPS — beim nächsten Laden schon ausgefüllt">🛰 km automatisch zählen</button>`}
     </div>
@@ -2295,6 +2657,8 @@ function viewFahren() {
         <td>${proKwh ? `<button class="btn small ghost" data-action="log-preis" data-i="${i}" title="Diesen Preis in deine Tarifdaten übernehmen">→ Tarif</button>` : ""}<button class="del" data-action="log-weg" data-i="${i}">✕</button></td></tr>`;
       }).join("")}
     </table></div>` : ""}
+    ${state.logbuch.some(e => e.socVon != null) ? `<details class="plain"><summary>⚡ Deine echte Ladekurve (vs. Werksangabe)</summary>${ladekurveChart()}</details>` : ""}
+    ${monatsChart() ? `<details class="plain"><summary>📊 Kosten der letzten 12 Monate</summary>${monatsChart()}</details>` : ""}
   </div></div>`;
   return html;
 }
@@ -2318,12 +2682,15 @@ function stationCard(st, distKm, fr) {
     <div class="meta">${st.op ? `<span class="pill">${esc(st.op)}</span>` : ""}${st.anz ? `<span class="pill">${st.anz} Ladepunkte</span>` : ""}${st.statusAm ? `<span class="pill">${esc(st.status || "Status")} · Stand ${datumDE(st.statusAm)}</span>` : ""}${distKm != null ? `<span class="pill">≈ ${n0(distKm * STRASSEN_FAKTOR)} km Straße</span>` : ""}${reach}${st.defekt ? '<span class="pill crit">⚠ als außer Betrieb gemeldet</span>' : ""}</div>
     <p class="small">${esc(st.adresse || "")}${b ? ` — deine beste Karte hier: <b>${esc(b.name)}</b> (${ct(b.preis)})` : ` — <b>keine deiner Karten passt hier</b>: nur per Betreiber-App (z. B. Tesla-/Kaufland-App) oder Preis vor Ort prüfen`}</p>
     ${st.kommentar && st.kommentar.text ? `<p class="small muted">💬 Nutzer-Meldung (${esc(st.kommentar.am || "")}): „${esc(st.kommentar.text)}“</p>` : ""}
+    ${state.saeulenFotos[st.id] ? `<p><img src="${state.saeulenFotos[st.id]}" alt="Foto-Notiz" style="max-width:130px;border-radius:10px"> <button class="del" data-action="foto-weg" data-id="${esc(st.id)}">✕ Foto</button></p>` : ""}
+    <details class="plain"><summary>💳 Alle deine Preise hier (${esc(netzKurz(netzId))})</summary>${saeulenPreisliste(netzId, art)}</details>
     <div class="btnrow">
       <a class="btn small primary" href="${mapsUrl(st)}" target="_blank" rel="noopener">🗺 Google Maps</a>
       <button class="btn small" data-action="station-teilen" data-id="${esc(st.id)}">📤 Teilen (→ Hello smart)</button>
       <button class="btn small ghost" data-action="station-fav" data-id="${esc(st.id)}">${fav ? "★ Gemerkt" : "☆ Merken"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="1" data-id="${esc(st.id)}" title="gute Säule — bevorzugen">${(state.saeulenNotizen || {})[st.id] === 1 ? "👍 ✓" : "👍"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="-1" data-id="${esc(st.id)}" title="meiden — nie wieder vorschlagen">${(state.saeulenNotizen || {})[st.id] === -1 ? "👎 ✓" : "👎"}</button>
+      <button class="btn small ghost" data-action="saeule-foto" data-id="${esc(st.id)}" title="Foto-Notiz (z. B. versteckte Zufahrt)">📷</button>
     </div>
   </div>`;
 }
@@ -2475,6 +2842,8 @@ function stoppCard(st, i, tripId, zeit) {
     ${st.ohneSaeule ? `<p class="small" style="color:var(--crit)"><b>In diesem Abschnitt hat OpenChargeMap keinen Schnelllader</b> (dünnes Netz, z. B. Bosnien). Plan: am Stopp davor auf 100 %, hier nur Notfall-Optionen — vorab auf PlugShare prüfen.</p>` : ""}
     <p class="small">${st.platzhalter || st.angepasst ? `Geplante Position — konkrete Säule hier aussuchen: <a href="${ocmMap}" target="_blank" rel="noopener">OpenChargeMap-Karte</a>` : esc(st.adresse || "")}${b ? ` — beste Karte: <b>${esc(b.name)}</b> (${ct(b.preis)})` : ""}</p>
     ${st.planB ? `<p class="small muted">🅱 Plan B nebenan: ${esc(st.planB.name)} (${n0(st.planB.kw)} kW${st.planB.anz ? ", " + st.planB.anz + " Ladepunkte" : ""}) — <a href="${mapsUrl(st.planB)}" target="_blank" rel="noopener">Maps</a></p>` : ""}
+    ${state.saeulenFotos[st.id] ? `<p><img src="${state.saeulenFotos[st.id]}" alt="Foto-Notiz" style="max-width:130px;border-radius:10px"> <button class="del" data-action="foto-weg" data-id="${esc(st.id)}">✕ Foto</button></p>` : ""}
+    ${netz ? `<details class="plain"><summary>💳 Alle deine Preise hier (${esc(netzKurz(netz))})</summary>${saeulenPreisliste(netz, "dc")}</details>` : ""}
     ${st.umfeld && !st.umfeld.fehler ? `<div class="meta">
       ${st.umfeld.essen && st.umfeld.essen.length ? `<span class="pill">🍔 ${st.umfeld.essen.length}× Essen (${esc(st.umfeld.essen[0])}${st.umfeld.essen.length > 1 ? " …" : ""})</span>` : ""}
       ${st.umfeld.wc ? '<span class="pill">🚻 WC</span>' : ""}
@@ -2493,7 +2862,8 @@ function stoppCard(st, i, tripId, zeit) {
       <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="25" ${verschiebeLauf ? "disabled" : ""}>25 km später ▶</button>
       ${!st.platzhalter ? `<button class="btn small ghost" data-action="stopp-umfeld" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" ${umfeldLauf ? "disabled" : ""}>${umfeldLauf === st.id ? "⏳ sucht …" : st.umfeld ? "🍔 Umfeld neu laden" : "🍔 Was gibt's hier?"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="1" data-id="${esc(st.id)}" title="gute Säule — bevorzugen">${notiz === 1 ? "👍 ✓" : "👍"}</button>
-      <button class="btn small ghost" data-action="saeule-note" data-wert="-1" data-id="${esc(st.id)}" title="meiden — nie wieder vorschlagen">${notiz === -1 ? "👎 ✓" : "👎"}</button>` : ""}
+      <button class="btn small ghost" data-action="saeule-note" data-wert="-1" data-id="${esc(st.id)}" title="meiden — nie wieder vorschlagen">${notiz === -1 ? "👎 ✓" : "👎"}</button>
+      <button class="btn small ghost" data-action="saeule-foto" data-id="${esc(st.id)}" title="Foto-Notiz (z. B. versteckte Zufahrt)">📷</button>` : ""}
     </div>
   </div>`;
 }
@@ -2649,6 +3019,7 @@ document.addEventListener("click", (e) => {
     if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; render(); }); }
     return;
   }
+  if (act === "cockpit-aus") { state.cockpit = false; }
   if (act === "live-weiter") { const trL = state.trips.find(t => t.id === id); if (trL) trL.liveStopp = Math.min((trL.liveStopp || 0) + 1, (trL.stopps || []).length); }
   if (act === "live-reset") { const trL = state.trips.find(t => t.id === id); if (trL) trL.liveStopp = 0; }
   if (act === "stopp-umfeld") {
@@ -2662,6 +3033,72 @@ document.addEventListener("click", (e) => {
     const wert = +btn.dataset.wert;
     if (state.saeulenNotizen[id] === wert) delete state.saeulenNotizen[id];
     else state.saeulenNotizen[id] = wert;
+  }
+  if (act === "saeule-foto") {
+    // Foto-Notiz je Säule: Kamera/Datei öffnen, verkleinert als Data-URL speichern
+    const inp = $("#fotofile");
+    if (!inp) return;
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const max = 640, sk = Math.min(1, max / Math.max(img.width, img.height));
+          const cv = document.createElement("canvas");
+          cv.width = Math.round(img.width * sk); cv.height = Math.round(img.height * sk);
+          cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+          // Ältestes Foto rauswerfen, wenn > 20 (localStorage-Platz schonen)
+          const keys = Object.keys(state.saeulenFotos);
+          if (keys.length >= 20) delete state.saeulenFotos[keys[0]];
+          state.saeulenFotos[id] = cv.toDataURL("image/jpeg", 0.7);
+          save(); render();
+        };
+        img.src = rd.result;
+      };
+      rd.readAsDataURL(f);
+      inp.value = "";
+    };
+    inp.click();
+    return;
+  }
+  if (act === "foto-weg") { delete state.saeulenFotos[id]; }
+  if (act === "wunsch-neu") {
+    const p = parseFloat(String(($("#wunsch-preis") || {}).value || "").replace(",", "."));
+    if (!p || p < 0.05 || p > 1.5) { alert("Bitte einen Wunschpreis zwischen 0,05 und 1,50 €/kWh eintragen."); return; }
+    state.preisWuensche.push({ netz: ($("#wunsch-netz") || {}).value || "ionity", art: ($("#wunsch-art") || {}).value || "dc", preis: Math.round(p * 100) / 100 });
+  }
+  if (act === "wunsch-weg") { state.preisWuensche.splice(+btn.dataset.i, 1); }
+  if (act === "wunschtreffer-weg") { state.wunschTreffer = null; }
+  if (act === "jahresbild") { jahresbild(); return; }
+  if (act === "trip-retour") {
+    const trip = state.trips.find(t => t.id === id);
+    if (!trip || !trip.startQ) { alert("Diese Route hat keine gespeicherten Adressen — bitte im Planer neu anlegen."); return; }
+    state.planer = Object.assign({}, state.planer, { start: trip.zielQ, ziel: trip.startQ, via: trip.viaQ || "" });
+    state.tab = "trips"; save(); render();
+    routePlanen();
+    return;
+  }
+  if (act === "trip-stoerung") {
+    const trip = state.trips.find(t => t.id === id);
+    if (trip && !stoerungLauf) routeStoerungen(trip);
+    return;
+  }
+  if (act === "trip-archiv") {
+    const trip = state.trips.find(t => t.id === id);
+    if (!trip) return;
+    const ist = tripIst(trip);
+    let plan = null;
+    try { plan = tripAnalyse(trip).gesamt; } catch (e) { /* egal */ }
+    state.tripArchiv.unshift({ ziel: trip.ziel, datum: trip.datum, hinKm: trip.hinKm, plan, ist: ist ? ist.eur : null });
+    state.tripArchiv = state.tripArchiv.slice(0, 50);
+    state.trips = state.trips.filter(t => t.id !== id);
+  }
+  if (act === "archiv-weg") { state.tripArchiv.splice(+btn.dataset.i, 1); }
+  if (act === "trip-druck") {
+    const trip = state.trips.find(t => t.id === id);
+    if (trip) druckReisemappe(trip);
+    return;
   }
   if (act === "rek-start") { rekorderStart(); return; }
   if (act === "rek-stop") { rekorderStop(true); return; }
@@ -2814,6 +3251,7 @@ document.addEventListener("click", (e) => {
       eintrag.socVon = Math.max(0, Math.min(100, +socV));
       eintrag.socBis = Math.max(0, Math.min(100, +socB));
     }
+    if (($("#log-warten") || {}).checked) eintrag.warten = true;
     // Kosten aus deinem Tarif vorrechnen, wenn nicht angegeben
     if (!eintrag.kosten && eintrag.kwh) {
       const artL = eintrag.minuten && eintrag.kwh / (eintrag.minuten / 60) >= 30 ? "dc" : "ac";
@@ -2918,7 +3356,7 @@ document.addEventListener("change", (e) => {
     if (trip) {
       let v = t.value;
       const f = t.dataset.trfeld;
-      if (["hinKm", "tageVorOrt", "kmVorOrt"].includes(f)) v = Math.max(0, +v || 0);
+      if (["hinKm", "tageVorOrt", "kmVorOrt", "tempo"].includes(f)) v = Math.max(0, +v || 0);
       if (f === "personen") v = Math.max(1, Math.min(9, +v || 1));
       trip[f] = v;
       // Abfahrts-/Rückreisedatum und "Tage vor Ort" gegenseitig synchron halten
@@ -2936,7 +3374,7 @@ document.addEventListener("change", (e) => {
   if (t.dataset.fahrt) {
     const f = t.dataset.fahrt;
     let v = t.value;
-    if (f === "winter") v = !!v;
+    if (f === "winter") { v = v === "auto" ? "auto" : !!v; if (v === "auto") fahrWetterHolen(); }
     else if (f !== "modus") v = Math.max(0, +v || 0);
     state.fahrt[f] = v;
     save(); render();
@@ -2971,6 +3409,17 @@ document.addEventListener("change", (e) => {
       save(); render();
     }
   }
+  // Karten-Notizen (Notiz + Ablaufdatum je Tarif) — kein render, damit Tippen ungestört
+  if (t.dataset.tnotiz) {
+    const id = t.dataset.tnotiz;
+    state.tarifNotizen[id] = Object.assign({}, state.tarifNotizen[id], { notiz: t.value.trim() });
+    save();
+  }
+  if (t.dataset.tablauf) {
+    const id = t.dataset.tablauf;
+    state.tarifNotizen[id] = Object.assign({}, state.tarifNotizen[id], { ablauf: t.value });
+    save(); render();
+  }
   // Checklisten
   if (t.dataset.check) {
     state.checks[t.dataset.check] = t.checked;
@@ -3001,15 +3450,22 @@ loadState();
 initTheme();
 // App-Icon-Shortcuts (?go=…): direkt an die richtige Stelle springen
 let goShortcut = "";
+state.cockpit = false; // nur per ?go=cockpit-Shortcut aktiv, nie aus altem Speicherstand
 try {
   goShortcut = new URLSearchParams(location.search).get("go") || "";
   if (goShortcut === "trips") state.tab = "trips";
-  if (goShortcut === "saeulen" || goShortcut === "timer") state.tab = "fahren";
+  if (goShortcut === "saeulen" || goShortcut === "timer" || goShortcut === "cockpit") state.tab = "fahren";
+  if (goShortcut === "cockpit") state.cockpit = true;   // Kurzmodus: nur die Reichweiten-Antwort
   if (goShortcut) history.replaceState(null, "", location.pathname);
 } catch (e) { /* egal */ }
 render();
 if (goShortcut === "saeulen") standortSuche();
 checkTarifUpdate();
+// Auto-Backup aufs Pi: höchstens einmal pro Woche, still im Hintergrund
+if (state.settings.profilName && (!state.settings.letztesBackup ||
+  (new Date() - new Date(state.settings.letztesBackup)) / 864e5 >= 7)) {
+  setTimeout(profilSichernStill, 4000);
+}
 // Wetter für nahe Trips auffrischen (Kälte-Check am Vortag)
 state.trips.filter(t => {
   if (!t.datum) return false;

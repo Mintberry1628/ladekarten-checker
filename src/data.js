@@ -497,6 +497,18 @@ automation lkc:
       <p class="small">Tipp: Die <code>webhook_id</code> kannst du in einen eigenen Geheimnamen ändern — dann in der App unter dem Profilnamen-Feld dieselbe ID eintragen.</p>`
   },
   {
+    id: "karte-weg", titel: "🧯 Ladekarte verloren oder gesperrt?",
+    html: `
+      <p><b>Sofort-Reihenfolge:</b></p>
+      <ol>
+        <li><b>In der Anbieter-App sperren</b> — fast alle Anbieter (EnBW, Maingau, EWE Go, Electroverse …) haben „Karte sperren“ direkt in der App unter Konto/Karten.</li>
+        <li>Geht das nicht: <b>Hotline anrufen</b> — die Nummer steht in der App unter Hilfe/Kontakt und auf den Anbieter-Seiten (in dieser App: Tarife → Karte → Konditionen → „Zum Anbieter“).</li>
+        <li><b>Ersatzkarte bestellen</b> — Kosten stehen bei jedem Tarif unter „Beschaffung“ (z. B. SWM 11,90 € je Ersatzkarte, EnBW 9,90 €).</li>
+      </ol>
+      <p><b>Wichtig:</b> Bis zur Sperrung kann jeder Finder mit der Karte auf DEINE Rechnung laden — Karten sind meist nicht PIN-geschützt. Deshalb sofort sperren, nicht erst suchen.</p>
+      <p>Übergangslösung bis die Ersatzkarte kommt: Die App-Version des Tarifs funktioniert weiter (QR/App-Start an der Säule), und Ad-hoc per Kreditkarte geht an jedem neuen Schnelllader.</p>`
+  },
+  {
     id: "notfall", titel: "🆘 Panne & Notfall (funktioniert offline)",
     html: `
       <p><b>Notruf europaweit: 112</b> (auch in Bosnien). Pannenhilfe:</p>
