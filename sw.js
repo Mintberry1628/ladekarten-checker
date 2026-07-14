@@ -1,6 +1,6 @@
 /* Service Worker — macht die App offline-fähig (Bosnien!).
    Wird von build.sh mit Build-Stempel versehen; alte Caches räumen sich selbst auf. */
-const CACHE = "lkc-20260712210515";
+const CACHE = "lkc-20260714185546";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

@@ -1061,6 +1061,7 @@ async function routePlanen(altIndex) {
     save(); render();
     routeKarte(trip);                          // erzeugt die Kachel-Liste der Karte …
     tilesCachen(routeKarte.letzteUrls || []);  // … und legt sie offline ab (Bosnien!)
+    zielLaderSuchen(trip, true); // Lader rund ums Ziel gleich mitsuchen (still)
     wetterHolen(trip); // asynchron, aktualisiert die Kälte-Automatik sobald da
   } catch (e) {
     routeStatus = "fehler:Planung fehlgeschlagen (" + e.message + "). Hinweis: Im claude.ai-Link sind externe Abfragen gesperrt — nutze die App über mintberry.org oder am PC.";
@@ -1508,6 +1509,56 @@ function jahresbild() {
       a.href = URL.createObjectURL(blob); a.download = datei.name; a.click(); URL.revokeObjectURL(a.href);
     }
   }, "image/png");
+}
+
+/* ---------- Lader am Zielort: mehrere Säulen rund ums Reiseziel ----------
+   Straße/Viertel als Ziel eingegeben = punktgenaue Suche, nur Ortsname = Zentrum.
+   Sortiert nach Nähe UND Leistung; bei dünnem Netz (Bosnien) Radius bis 40 km. */
+let zielLaderLauf = null;
+async function zielLaderSuchen(trip, still) {
+  const key = (state.settings.ocmKey || "").trim();
+  if (!key || !trip.zielCoord) {
+    if (!key && !still) alert("Braucht den OpenChargeMap-Key (unter Fahren eintragen).");
+    return;
+  }
+  zielLaderLauf = trip.id; render();
+  const { lat, lng } = trip.zielCoord;
+  let liste = [], radius = 5, fehler = "";
+  try {
+    for (const r of [5, 15, 40]) {
+      radius = r;
+      const url = "https://api.openchargemap.io/v3/poi/?output=json&distanceunit=km&distance=" + r + "&maxresults=30&verbose=false" +
+        "&latitude=" + lat + "&longitude=" + lng + "&key=" + encodeURIComponent(key);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      liste = (await resp.json()).filter(p => p.AddressInfo).map(p => ({
+        id: "ocm" + p.ID,
+        name: p.AddressInfo.Title || "Ladepunkt",
+        op: (p.OperatorInfo && p.OperatorInfo.Title) || "",
+        lat: p.AddressInfo.Latitude, lng: p.AddressInfo.Longitude,
+        adresse: [p.AddressInfo.AddressLine1, p.AddressInfo.Town].filter(Boolean).join(", "),
+        kw: Math.max(0, ...(p.Connections || []).map(c => c.PowerKW || 0)),
+        anz: (p.Connections || []).reduce((s, c) => s + (c.Quantity || 1), 0),
+        status: p.StatusType ? (p.StatusType.IsOperational === false ? "außer Betrieb" : "in Betrieb") : "",
+        statusAm: (p.DateLastStatusUpdate || p.DateLastVerified || "").slice(0, 10),
+        dist: haversineKm(lat, lng, p.AddressInfo.Latitude, p.AddressInfo.Longitude),
+      }));
+      if (liste.length >= 3) break; // genug Auswahl gefunden — nicht unnötig weit suchen
+      await sleep(300);
+    }
+    // Nähe UND Leistung: ein schnellerer Lader „überholt“, wenn er nicht viel weiter weg ist
+    liste.forEach(k => {
+      const stufe = k.kw >= 150 ? 4 : k.kw >= 50 ? 3 : k.kw >= 22 ? 2 : 1;
+      k.zielScore = stufe * 2 - k.dist;
+      const notiz = (state.saeulenNotizen || {})[k.id];
+      if (notiz === 1) k.zielScore += 2;
+      if (notiz === -1) k.zielScore -= 99;
+    });
+    liste.sort((a, b) => b.zielScore - a.zielScore);
+  } catch (e) { fehler = e.message; liste = []; }
+  trip.zielLader = { stand: new Date().toISOString(), radius, liste: liste.slice(0, 8), fehler };
+  zielLaderLauf = null;
+  save(); render();
 }
 
 /* ---------- Reisemappe drucken (fürs Handschuhfach) ---------- */
@@ -2480,6 +2531,15 @@ function viewTrips() {
       ${tipp("navi-teilen", `<p>💡 <b>Stopps ans Auto schicken:</b> Bei jedem Stopp <b>📤 Teilen → Hello smart</b> antippen — der #5 heizt den Akku dann rechtzeitig vor (volle Ladeleistung). Rückfahrt: gleiche Logik in Gegenrichtung, am Ziel vorher vollladen.</p>`)}
       ${trip.stopps.map((st, i) => stoppCard(st, i, trip.id, zeiten && zeiten.stopps[i])).join("")}` : ""}
 
+      ${trip.zielCoord ? `
+      <h3 style="margin-top:14px">🏨 Laden am Ziel${+trip.tageVorOrt ? ` (${trip.tageVorOrt} Tage vor Ort)` : ""} ${iBtn("zl-hilfe")}</h3>
+      ${iBox("zl-hilfe", "Sucht mehrere Säulen rund um deine Ziel-Eingabe: Hast du Straße oder Viertel eingegeben, wird genau dort gesucht — nur ein Ortsname = Ortszentrum. Sortiert nach Nähe UND Leistung (ein schnellerer Lader wird bevorzugt, wenn er nicht viel weiter weg ist). Findet sich im 5-km-Umkreis nichts, weitet die App automatisch bis 40 km aus.")}
+      <div class="btnrow"><button class="btn small ${trip.zielLader ? "ghost" : "primary"}" data-action="ziel-lader" data-id="${trip.id}" ${zielLaderLauf ? "disabled" : ""}>${zielLaderLauf === trip.id ? "⏳ sucht am Ziel …" : trip.zielLader ? "🔌 Ziel-Lader neu suchen" : "🔌 Lader am Ziel suchen"}</button></div>
+      ${trip.zielLader ? (trip.zielLader.liste.length
+        ? `<p class="small muted">Gesucht um „${esc(trip.zielQ || trip.ziel.split("→").pop().trim())}“ · Umkreis ${trip.zielLader.radius} km · Stand ${new Date(trip.zielLader.stand).toLocaleDateString("de-DE")}. Tipp: Straße/Viertel als Ziel eingeben macht die Suche punktgenau.</p>` +
+        trip.zielLader.liste.map(stZ => stationCard(stZ, stZ.dist, null)).join("")
+        : `<p class="small" style="color:var(--crit)">Keine Säule im ${trip.zielLader.radius}-km-Umkreis${trip.zielLader.fehler ? " (Abfrage-Fehler: " + esc(trip.zielLader.fehler) + " — später erneut)" : ""} — dünnes Netz wie in Bosnien: dein Schuko-Ladegerät an der Unterkunft ist dort der Plan, vorab auf PlugShare prüfen.</p>`) : ""}` : ""}
+
       <h3 style="margin-top:14px">💳 Ladekarten-Empfehlung für diese Fahrt ${iBtn("emp-hilfe")}</h3>
       ${iBox("emp-hilfe", `Verglichen werden die ${n0(ana.dcUnterwegs)} kWh Schnellladen unterwegs (hin + zurück). Ein Abo empfiehlt die App nur, wenn es MIT Grundgebühr günstiger ist als die beste kostenlose Variante. Jede Zeile lässt sich antippen: Rechenweg, Länder-Check und Bestell-Link — nochmal antippen schließt.`)}
       <div class="hbars">${ana.kandidaten.slice(0, 3).map((k, i) => empZeile(k, i)).join("")}</div>
@@ -2774,6 +2834,7 @@ function findeStation(id) {
   if (f) return f;
   for (const tr of state.trips) {
     if (tr.stopps) { const s = tr.stopps.find(x => (tr.id + "-" + x.id) === id || x.id === id); if (s) return s; }
+    if (tr.zielLader && tr.zielLader.liste) { const z = tr.zielLader.liste.find(x => x.id === id); if (z) return z; }
   }
   return null;
 }
@@ -3136,6 +3197,11 @@ document.addEventListener("click", (e) => {
   if (act === "trip-stoerung") {
     const trip = state.trips.find(t => t.id === id);
     if (trip && !stoerungLauf) routeStoerungen(trip);
+    return;
+  }
+  if (act === "ziel-lader") {
+    const trip = state.trips.find(t => t.id === id);
+    if (trip && !zielLaderLauf) zielLaderSuchen(trip);
     return;
   }
   if (act === "trip-archiv") {
