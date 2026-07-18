@@ -456,6 +456,7 @@ function stosszeitText(trip) {
    DREI Server nacheinander probiert; Fehler sind nur vorübergehend (nicht gespeichert). */
 let umfeldLauf = null;
 let umfeldFehler = null;
+let umfeldServerIdx = 0;
 const OVERPASS_SERVER = [
   "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
@@ -463,15 +464,25 @@ const OVERPASS_SERVER = [
 ];
 async function stoppUmfeld(st, still) {
   umfeldLauf = st.id; umfeldFehler = null; render();
-  const um = (f) => `node(around:400,${st.lat},${st.lng})${f};`;
-  const q = `[out:json][timeout:12];(${um('[amenity~"^(restaurant|fast_food|cafe)$"]')}${um("[amenity=toilets]")}${um("[shop=supermarket]")}${um("[leisure=playground]")});out body 40;`;
+  // WICHTIG: nwr = node/way/relation. Restaurants, Supermärkte & WCs an Raststätten
+  // sind in OpenStreetMap meist GEBÄUDE-Flächen (way), keine Punkte — die reine
+  // node-Suche fand dort nie etwas. 700 m Umkreis (Raststätten liegen etwas abseits).
+  const um = (f) => `nwr(around:700,${st.lat},${st.lng})${f};`;
+  const q = `[out:json][timeout:20];(${um('[amenity~"^(restaurant|fast_food|cafe)$"]')}${um("[amenity=toilets]")}${um("[shop=supermarket]")}${um("[leisure=playground]")});out center 40;`;
   let js = null, grund = "";
-  for (const server of OVERPASS_SERVER) {
+  // Startserver je Aufruf durchrotieren, damit die Hintergrund-Anreicherung nicht
+  // immer denselben Server trifft (Rate-Limit) — verteilt die Last auf alle drei.
+  const start = umfeldServerIdx++;
+  for (let k = 0; k < OVERPASS_SERVER.length; k++) {
+    const server = OVERPASS_SERVER[(start + k) % OVERPASS_SERVER.length];
     try {
-      // hartes Zeitlimit je Server: hängt einer, geht es nach 13 s zum nächsten weiter
-      const r = await fetchMitTimeout(server + "?data=" + encodeURIComponent(q), 13000);
+      // hartes Zeitlimit je Server: hängt einer, geht es zum nächsten weiter
+      const r = await fetchMitTimeout(server + "?data=" + encodeURIComponent(q), 16000);
       if (!r.ok) { grund = "HTTP " + r.status; continue; }
-      js = await r.json();
+      const txt = await r.text();
+      // Überlastete Server antworten mit XML/HTML statt JSON — sauber überspringen
+      if (!txt.trim().startsWith("{")) { grund = "überlastet"; continue; }
+      js = JSON.parse(txt);
       break;
     } catch (e) { grund = e.name === "AbortError" ? "Zeitüberschreitung" : e.message; }
   }
@@ -1596,7 +1607,7 @@ async function tripAnreichern(trip) {
       if (anreicherLauf !== trip.id) return; // neue Planung gestartet → abbrechen
       if (st.platzhalter || !st.id || st.umfeld) continue;
       await stoppUmfeld(st, true);
-      await sleep(600);
+      await sleep(2500); // sanftes Tempo: Gratis-Overpass-Server nicht ins Rate-Limit treiben
     }
   } catch (e) { /* Hintergrund — Fehler bleiben stumm, Knöpfe bleiben manuell nutzbar */ }
   finally { if (anreicherLauf === trip.id) { anreicherLauf = null; render(); } }
@@ -2564,24 +2575,29 @@ function viewTrips() {
       <p class="small">${iBtn("trip-rechnung-" + trip.id)} <span class="muted">Wie wurde gerechnet?</span></p>
       ${iBox("trip-rechnung-" + trip.id, `${trip.routeNotiz ? "🗺 " + esc(trip.routeNotiz) + "<br><br>" : ""}${n1(ana.vAB)} kWh/100 km bei ~130 km/h${state.settings.beladen ? " · beladen" : ""} · ${esc(kaelteText(trip))} · volle Ladung reicht ${n0(ana.kmVoll)} km, Folge-Etappen (80→${state.settings.ankunftSoc} %) ${n0(ana.kmHub)} km · vor Ort ${n0(ana.kWhVorOrt)} kWh über ${esc(ana.vorOrtName)} (${ct(ana.vorOrtPreis)})${trip.hoehe ? ` · Höhenprofil +${n0(trip.hoehe.aufstieg)}/−${n0(trip.hoehe.abstieg)} m eingerechnet` : ""}.`)}
 
-      ${trip.zielCoord ? `
-      <h3 style="margin-top:14px">🏨 Laden am Ziel${+trip.tageVorOrt ? ` (${trip.tageVorOrt} Tage vor Ort)` : ""} ${iBtn("zl-hilfe")}</h3>
-      ${iBox("zl-hilfe", "Sucht mehrere Säulen rund um deine Ziel-Eingabe: Hast du Straße oder Viertel eingegeben, wird genau dort gesucht — nur ein Ortsname = Ortszentrum. Sortiert nach Nähe UND Leistung (ein schnellerer Lader wird bevorzugt, wenn er nicht viel weiter weg ist). Findet sich im 5-km-Umkreis nichts, weitet die App automatisch bis 40 km aus.")}
-      ${zielLaderLauf === trip.id && !trip.zielLader ? `<p class="small muted">⏳ Suche Lader rund um „${esc(trip.zielQ || trip.ziel.split("→").pop().trim())}“ … (läuft automatisch nach der Planung)</p>` : ""}
-      <div class="btnrow"><button class="btn small ${trip.zielLader ? "ghost" : "primary"}" data-action="ziel-lader" data-id="${trip.id}" ${zielLaderLauf ? "disabled" : ""}>${zielLaderLauf === trip.id ? "⏳ sucht am Ziel …" : trip.zielLader ? "🔌 Ziel-Lader neu suchen" : "🔌 Lader am Ziel suchen"}</button></div>
-      ${trip.zielLader ? (trip.zielLader.liste.length
-        ? `<p class="small muted">Gesucht um „${esc(trip.zielQ || trip.ziel.split("→").pop().trim())}“ · Umkreis ${trip.zielLader.radius} km · Stand ${new Date(trip.zielLader.stand).toLocaleDateString("de-DE")}. Tipp: Straße/Viertel als Ziel eingeben macht die Suche punktgenau.</p>` +
-        trip.zielLader.liste.map(stZ => stationCard(stZ, stZ.dist, null)).join("")
-        : `<p class="small" style="color:var(--crit)">Keine Säule im ${trip.zielLader.radius}-km-Umkreis${trip.zielLader.fehler ? " (Abfrage-Fehler: " + esc(trip.zielLader.fehler) + " — später erneut)" : ""} — dünnes Netz wie in Bosnien: dein Schuko-Ladegerät an der Unterkunft ist dort der Plan, vorab auf PlugShare prüfen.</p>`) : ""}` : ""}
-
       ${trip.stopps && trip.stopps.length ? `
       <h3 style="margin-top:14px">⚡ Ladestopp-Plan (Hinfahrt)</h3>
       ${routeSchema(trip)}
       ${routeKarte(trip)}
       <p class="small">${trip.fahrzeitMin ? `Reine Fahrzeit ~${Math.floor(trip.fahrzeitMin / 60)} h ${Math.round(trip.fahrzeitMin % 60)} min + ~${n0(trip.stopps.reduce((s, x) => s + (x.ladeMin || 0), 0))} min Laden. ` : ""}Ankunft am Ziel mit ca. <b>${trip.ankunftFinal != null ? trip.ankunftFinal : "–"} % Akku</b>${zeiten ? ` um <b>~${zeiten.ziel} Uhr</b>` : trip.fahrzeitMin ? ` <span class="muted">(Abfahrts-Uhrzeit eintragen → Uhrzeiten je Stopp)</span>` : ""}.</p>
       ${stoss ? `<p class="small" style="color:var(--warn)">🚦 ${esc(stoss)}</p>` : ""}
+      ${stoppFilterLeiste(trip)}
       ${tipp("navi-teilen", `<p>💡 <b>Stopps ans Auto schicken:</b> Bei jedem Stopp <b>📤 Teilen → Hello smart</b> antippen — der #5 heizt den Akku dann rechtzeitig vor (volle Ladeleistung). Rückfahrt: gleiche Logik in Gegenrichtung, am Ziel vorher vollladen.</p>`)}
       ${trip.stopps.map((st, i) => stoppCard(st, i, trip.id, zeiten && zeiten.stopps[i])).join("")}` : ""}
+
+      ${trip.zielCoord ? `
+      <details class="plain" style="margin-top:14px">
+      <summary>🏨 Laden am Ziel${+trip.tageVorOrt ? ` — ${trip.tageVorOrt} Tage vor Ort` : ""}${trip.zielLader && trip.zielLader.liste.length ? ` (${trip.zielLader.liste.length} Säulen gefunden)` : ""}</summary>
+      <div style="margin-top:10px">
+      ${iBox("zl-hilfe", "Sucht mehrere Säulen rund um deine Ziel-Eingabe: Hast du Straße oder Viertel eingegeben, wird genau dort gesucht — nur ein Ortsname = Ortszentrum. Sortiert nach Nähe UND Leistung (ein schnellerer Lader wird bevorzugt, wenn er nicht viel weiter weg ist). Findet sich im 5-km-Umkreis nichts, weitet die App automatisch bis 40 km aus.")}
+      <p class="small muted">Die Säulen rund um deinen Zielort — für den Aufenthalt vor Ort. ${iBtn("zl-hilfe")}</p>
+      ${zielLaderLauf === trip.id && !trip.zielLader ? `<p class="small muted">⏳ Suche Lader rund um „${esc(trip.zielQ || trip.ziel.split("→").pop().trim())}“ … (läuft automatisch nach der Planung)</p>` : ""}
+      <div class="btnrow"><button class="btn small ${trip.zielLader ? "ghost" : "primary"}" data-action="ziel-lader" data-id="${trip.id}" ${zielLaderLauf ? "disabled" : ""}>${zielLaderLauf === trip.id ? "⏳ sucht am Ziel …" : trip.zielLader ? "🔌 Ziel-Lader neu suchen" : "🔌 Lader am Ziel suchen"}</button></div>
+      ${trip.zielLader ? (trip.zielLader.liste.length
+        ? `<p class="small muted">Gesucht um „${esc(trip.zielQ || trip.ziel.split("→").pop().trim())}“ · Umkreis ${trip.zielLader.radius} km · Stand ${new Date(trip.zielLader.stand).toLocaleDateString("de-DE")}. Tipp: Straße/Viertel als Ziel eingeben macht die Suche punktgenau.</p>` +
+        trip.zielLader.liste.map(stZ => stationCard(stZ, stZ.dist, null)).join("")
+        : `<p class="small" style="color:var(--crit)">Keine Säule im ${trip.zielLader.radius}-km-Umkreis${trip.zielLader.fehler ? " (Abfrage-Fehler: " + esc(trip.zielLader.fehler) + " — später erneut)" : ""} — dünnes Netz wie in Bosnien: dein Schuko-Ladegerät an der Unterkunft ist dort der Plan, vorab auf PlugShare prüfen.</p>`) : ""}
+      </div></details>` : ""}
 
       <h3 style="margin-top:14px">💳 Ladekarten-Empfehlung für diese Fahrt ${iBtn("emp-hilfe")}</h3>
       ${iBox("emp-hilfe", `Verglichen werden die ${n0(ana.dcUnterwegs)} kWh Schnellladen unterwegs (hin + zurück). Ein Abo empfiehlt die App nur, wenn es MIT Grundgebühr günstiger ist als die beste kostenlose Variante. Jede Zeile lässt sich antippen: Rechenweg, Länder-Check und Bestell-Link — nochmal antippen schließt.`)}
@@ -2973,16 +2989,52 @@ function skaliereKarten() {
   });
 }
 
+/* ---------- Stopp-Filter „nur Stopps mit …“ ----------
+   Filtert die Stopps nach dem, was im Umfeld liegt (WC, Café/Essen, Supermarkt,
+   Spielplatz). Nicht passende Stopps werden nur ausgegraut — laden musst du dort
+   trotzdem, deshalb bleiben sie sichtbar. Braucht die Umfeld-Daten (laden autom.). */
+let stoppFilter = { wc: false, essen: false, markt: false, spiel: false };
+function filterAktiv() { return stoppFilter.wc || stoppFilter.essen || stoppFilter.markt || stoppFilter.spiel; }
+function stoppPasstFilter(st) {
+  if (!filterAktiv()) return true;
+  const u = st.umfeld;
+  if (!u || u.fehler) return null; // Umfeld noch nicht geladen → unbekannt
+  if (stoppFilter.wc && !u.wc) return false;
+  if (stoppFilter.essen && !(u.essen && u.essen.length)) return false;
+  if (stoppFilter.markt && !(u.markt && u.markt.length)) return false;
+  if (stoppFilter.spiel && !u.spiel) return false;
+  return true;
+}
+function stoppFilterLeiste(trip) {
+  const echte = (trip.stopps || []).filter(s => !s.platzhalter && s.id);
+  if (echte.length < 2) return ""; // erst ab 2 echten Stopps sinnvoll
+  const chip = (key, emoji, label) => `<button class="btn small ${stoppFilter[key] ? "primary" : "ghost"}" data-action="stopp-filter" data-key="${key}">${emoji} ${label}${stoppFilter[key] ? " ✓" : ""}</button>`;
+  let hinweis = "";
+  if (filterAktiv()) {
+    const passend = echte.filter(s => stoppPasstFilter(s) === true).length;
+    const unbekannt = echte.filter(s => stoppPasstFilter(s) === null).length;
+    hinweis = `<p class="small muted">${passend} von ${echte.length} Stopps passen${unbekannt ? ` · ${unbekannt} noch ohne Umfeld-Daten (lädt im Hintergrund)` : ""}. Nicht passende sind ausgegraut — laden musst du dort trotzdem.</p>`;
+  }
+  return `<div class="card flat" style="margin:8px 0">
+    <p class="small"><b>🔎 Stopps filtern — nur solche mit:</b> <span class="muted">(mehrere = alle müssen zutreffen)</span></p>
+    <div class="btnrow">${chip("essen", "☕", "Café/Essen")}${chip("wc", "🚻", "WC")}${chip("markt", "🛒", "Supermarkt")}${chip("spiel", "🛝", "Spielplatz")}</div>
+    ${hinweis}</div>`;
+}
+
 // Kompakte Stopp-Karte im Trip (Ladestopp-Plan)
 function stoppCard(st, i, tripId, zeit) {
+  const passt = stoppPasstFilter(st);
   const netz = st.op ? opZuNetz(st.op) : null;
   const meineIds = state.tarife.filter(besitzt).map(t => t.id);
   const b = netz ? besterPreis(netz, "dc", meineIds) : null;
   const notiz = (state.saeulenNotizen || {})[st.id];
   const ocmMap = `https://map.openchargemap.io/?latitude=${st.lat}&longitude=${st.lng}&zoom=12`;
-  return `<div class="card flat station" style="border-left:4px solid ${netz ? netzFarbe(netz) : "var(--hairline)"}">
+  const dim = passt === false ? ";opacity:.42" : "";
+  return `<div class="card flat station" style="border-left:4px solid ${netz ? netzFarbe(netz) : "var(--hairline)"}${dim}">
     <div class="tarif head"><b>${i + 1}. ${esc(st.name)}</b><span class="preis-haupt num">km ${n0(st.posKm)}</span></div>
     <div class="meta">
+      ${filterAktiv() && passt === true ? '<span class="pill good">✓ passt zum Filter</span>' : ""}
+      ${filterAktiv() && passt === false ? '<span class="pill">✕ nicht im Filter (lädst du trotzdem)</span>' : ""}
       ${zeit ? `<span class="pill">⏰ ${zeit.an}–${zeit.ab}</span>` : ""}
       <span class="pill ${st.kritisch ? "crit" : "acc"}">Ankunft ~${st.ankunftSoc} %${st.kritisch ? " ⚠ unter Reserve!" : ""}</span>
       <span class="pill good">laden auf ${st.zielSoc} % (~${st.ladeMin} min, ${st.kwh} kWh)</span>
@@ -3007,7 +3059,7 @@ function stoppCard(st, i, tripId, zeit) {
       ${st.umfeld.wc ? '<span class="pill">🚻 WC</span>' : ""}
       ${st.umfeld.markt && st.umfeld.markt.length ? `<span class="pill">🛒 ${esc(st.umfeld.markt[0])}</span>` : ""}
       ${st.umfeld.spiel ? '<span class="pill">🛝 Spielplatz</span>' : ""}
-      ${!(st.umfeld.essen || []).length && !st.umfeld.wc && !(st.umfeld.markt || []).length && !st.umfeld.spiel ? '<span class="pill">im 400-m-Umkreis nichts eingetragen</span>' : ""}
+      ${!(st.umfeld.essen || []).length && !st.umfeld.wc && !(st.umfeld.markt || []).length && !st.umfeld.spiel ? '<span class="pill">im 700-m-Umkreis nichts eingetragen</span>' : ""}
     </div>` : ""}
     ${umfeldFehler && umfeldFehler.id === st.id ? `<p class="small" style="color:var(--warn)">⚠ ${esc(umfeldFehler.text)}</p>` : ""}
     ${st.warum && st.warum.length ? `<details class="plain"><summary>Warum diese Säule?${st.score != null ? " (" + n1(st.score) + " Punkte)" : ""}</summary>
@@ -3184,6 +3236,11 @@ document.addEventListener("click", (e) => {
     const trU = state.trips.find(t => t.id === btn.dataset.trip);
     const stU = trU && (trU.stopps || []).find(x => x.id === id);
     if (stU && !umfeldLauf) stoppUmfeld(stU);
+    return;
+  }
+  if (act === "stopp-filter") {
+    const k = btn.dataset.key;
+    if (k in stoppFilter) { stoppFilter[k] = !stoppFilter[k]; render(); }
     return;
   }
   if (act === "saeule-note") {
