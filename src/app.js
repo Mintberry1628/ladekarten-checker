@@ -2837,7 +2837,8 @@ function viewFahren() {
 
   // Lade-Logbuch: füttert Statistik + Kalibrierung
   const stat = logbuchStatistik();
-  html += `<div class="card" style="margin-top:12px"><h3>📓 Lade-Logbuch ${iBtn("logb")}</h3>
+  html += `<details class="grp" style="margin-top:12px" ${state.timerVorschlag ? "open" : ""}><summary>📓 Lade-Logbuch <span class="muted" style="font-weight:500">— Ladung eintragen · lernt deine echten Zahlen</span></summary><div class="grpbody">
+    <p class="small" style="margin-top:8px">${iBtn("logb")} <span class="muted">Wozu das gut ist</span></p>
     ${iBox("logb", "30 Sekunden nach jedem Laden eintragen: Daraus lernt die App deine <b>echte</b> Ladegeschwindigkeit und deinen <b>echten</b> Verbrauch — alle Prognosen werden persönlicher. Die Startseite zeigt deine echten Kosten.")}
     ${state.timerVorschlag ? `<p class="small">⏱ <b>${state.timerVorschlag.minuten} min aus dem Timer übernommen</b> — nur noch kWh eintragen, die Kosten rechnet die App aus deinem Tarif vor.</p>` : ""}
     <div class="frow">
@@ -2868,7 +2869,7 @@ function viewFahren() {
     </table></div>` : ""}
     ${state.logbuch.some(e => e.socVon != null) ? `<details class="plain"><summary>⚡ Deine echte Ladekurve (vs. Werksangabe)</summary>${ladekurveChart()}</details>` : ""}
     ${monatsChart() ? `<details class="plain"><summary>📊 Kosten der letzten 12 Monate</summary>${monatsChart()}</details>` : ""}
-  </div></div>`;
+  </div></details></div>`;
   return html;
 }
 

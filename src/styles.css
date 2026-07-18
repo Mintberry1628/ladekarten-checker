@@ -8,7 +8,7 @@
   --card2: #EBEFF4;
   --ink: #131A23;
   --ink2: #4C5A69;
-  --muted: #8493A3;
+  --muted: #6C7A8A;
   --hairline: rgba(19, 26, 35, 0.10);
   --edge: rgba(19, 26, 35, 0.18);
   --field: #FBFCFE;
@@ -40,7 +40,7 @@
     --card2: #1B2536;
     --ink: #E9EEF4;
     --ink2: #9AAABB;
-    --muted: #6B7A8C;
+    --muted: #8492A3;
     --hairline: rgba(233, 238, 244, 0.10);
     --edge: rgba(233, 238, 244, 0.20);
     --field: #080D16;
@@ -61,7 +61,7 @@
 }
 :root[data-theme="light"] {
   --bg: #F2F4F7; --card: #FFFFFF; --card2: #EBEFF4;
-  --ink: #131A23; --ink2: #4C5A69; --muted: #8493A3;
+  --ink: #131A23; --ink2: #4C5A69; --muted: #6C7A8A;
   --hairline: rgba(19, 26, 35, 0.10);
   --edge: rgba(19, 26, 35, 0.18); --field: #FBFCFE;
   --accent: #2A78D6; --accent-ink: #FFFFFF; --accent-soft: rgba(42, 120, 214, 0.10);
@@ -74,7 +74,7 @@
 }
 :root[data-theme="dark"] {
   --bg: #04060B; --card: #0E1522; --card2: #1B2536;
-  --ink: #E9EEF4; --ink2: #9AAABB; --muted: #6B7A8C;
+  --ink: #E9EEF4; --ink2: #9AAABB; --muted: #8492A3;
   --hairline: rgba(233, 238, 244, 0.10);
   --edge: rgba(233, 238, 244, 0.20); --field: #080D16;
   --accent: #3987E5; --accent-ink: #FFFFFF; --accent-soft: rgba(57, 135, 229, 0.16);
@@ -292,11 +292,13 @@ details.grp .grpbody > h1:first-child { display: none; }
 .stat .l { font-size: .8rem; color: var(--ink2); margin-top: 2px; }
 
 /* ---------- Chips / Badges ---------- */
+/* Pills = reine STATUS-Etiketten (nicht klickbar): flach, dezenter Wasch-Ton,
+   kein Schatten, cursor default — damit sie NICHT mit Buttons verwechselt werden. */
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: .74rem; font-weight: 650; padding: 2px 9px;
-  border-radius: 999px; border: 1px solid var(--hairline);
-  color: var(--ink2); background: var(--card2); vertical-align: middle;
+  font-size: .74rem; font-weight: 650; padding: 3px 10px;
+  border-radius: 999px; border: 0; cursor: default;
+  color: var(--ink2); background: color-mix(in srgb, var(--ink) 8%, transparent); vertical-align: middle;
 }
 .pill.acc { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .pill.good { background: var(--good-soft); color: var(--good); border-color: transparent; }
@@ -426,11 +428,14 @@ details.strategie .sdetail { padding: 6px 2px 12px; border-bottom: 1px dashed va
 .drive .netzgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
 .drive .netzgrid button {
   appearance: none; font-family: inherit; cursor: pointer;
-  background: var(--card); color: var(--ink); border: 1px solid var(--hairline);
+  background: var(--card2); color: var(--ink); border: 1px solid var(--edge);
   border-radius: 12px; padding: 18px 10px; font-size: 1.05rem; font-weight: 700;
-  min-height: 74px;
+  min-height: 74px; box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.12);
+  transition: border-color .14s, transform .07s;
 }
-.drive .netzgrid button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.drive .netzgrid button:hover { border-color: var(--accent); }
+.drive .netzgrid button:active { transform: translateY(1px); }
+.drive .netzgrid button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .drive .result .bigcard {
   font-size: 1.3rem; padding: 18px;
 }
