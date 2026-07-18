@@ -1895,17 +1895,42 @@ function kurzName(t) {
    ============================================================ */
 const TABS = [
   { id: "start", label: "Start", icon: "M3 11.5 12 4l9 7.5M5.5 10v9h13v-9" },
-  { id: "orte", label: "Orte", icon: "M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11Zm0-8.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" },
-  { id: "tarife", label: "Tarife", icon: "M4 6h16v12H4zM4 10h16M8 14h4" },
-  { id: "trips", label: "Trips", icon: "M4 17c3-6 6 2 9-4s5-2 7-6M5 20h14" },
-  { id: "fahren", label: "Fahren", icon: "M12 3a9 9 0 1 0 9 9M12 12l6-6M12 12h.01" },
-  { id: "wissen", label: "Wissen", icon: "M12 4c-2-1.5-5-1.5-7 0v14c2-1.5 5-1.5 7 0 2-1.5 5-1.5 7 0V4c-2-1.5-5-1.5-7 0v14" },
+  { id: "reise", label: "Reise", icon: "M4 17c3-6 6 2 9-4s5-2 7-6M5 20h14" },
+  { id: "laden", label: "Laden", icon: "M12 3a9 9 0 1 0 9 9M12 12l6-6M12 12h.01" },
+  { id: "meins", label: "Meins", icon: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 9a8 8 0 0 1 16 0" },
 ];
+
+// Ruhige Kopfzeile je Tab: großer Titel + EIN Satz „das machst du hier“ → Orientierung
+function tabKopf(emoji, titel, unter) {
+  return `<div class="tabhead"><h1>${emoji} ${esc(titel)}</h1><p class="lead">${esc(unter)}</p></div>`;
+}
+// Führende <h1> einer wiederverwendeten Ansicht entfernen (die Kopfzeile ersetzt sie)
+function ohneH1(html) { return html.replace(/<h1[\s\S]*?<\/h1>/, ""); }
+
+// Reise = Planer + Trips + Reisetagebuch
+function viewReise() {
+  return tabKopf("🧭", "Reise planen", "Route mit automatischen Ladestopps — plus, wo du am Ziel lädst.") + ohneH1(viewTrips());
+}
+// Laden = Cockpit/Reichweite + Säule finden + Blockier-Timer + Logbuch
+function viewLaden() {
+  if (state.cockpit) return viewFahren(); // Cockpit-Kurzmodus: nur Ring + km, keine Kopfzeile
+  return tabKopf("⚡", "Laden unterwegs", "Ladesäule in der Nähe finden, Reichweite prüfen, Timer & Logbuch.") + ohneH1(viewFahren());
+}
+// Meins = Karten/Preise + Auto/Orte/Wallbox + Wissen — als ruhige Gruppen-Aufklapper.
+// meinsOpen steuert, welche Gruppe offen ist (Standard: Karten; „?“-Hilfe: Wissen).
+let meinsOpen = "";
+function viewMeins() {
+  const auf = (g) => (meinsOpen ? meinsOpen === g : g === "karten") ? "open" : "";
+  return tabKopf("💳", "Meins", "Deine Ladekarten & Preise, dein Auto und alle Checklisten.") +
+    `<details class="grp" ${auf("karten")}><summary>💳 Karten, Preise &amp; Angebote</summary><div class="grpbody">${ohneH1(viewTarife())}</div></details>` +
+    `<details class="grp" ${auf("auto")}><summary>🚗 Mein Auto, Ladeorte &amp; Wallbox</summary><div class="grpbody">${ohneH1(viewOrte())}</div></details>` +
+    `<details class="grp" ${auf("wissen")}><summary>📖 Wissen &amp; Checklisten</summary><div class="grpbody">${ohneH1(viewWissen())}</div></details>`;
+}
 
 function render() {
   renderNav();
   const main = $("#main");
-  const fn = { start: viewStart, orte: viewOrte, tarife: viewTarife, trips: viewTrips, fahren: viewFahren, wissen: viewWissen }[state.tab] || viewStart;
+  const fn = { start: viewStart, reise: viewReise, laden: viewLaden, meins: viewMeins }[state.tab] || viewStart;
   const scrollVorher = window.scrollY;
   // data-bereich steuert das große Wasserzeichen-Icon je Tab (Orientierung)
   main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}" data-bereich="${state.tab}">${fn()}</div>`;
@@ -1917,8 +1942,8 @@ function render() {
 }
 
 function renderNav() {
-  // Einfacher Modus: nur Start, Fahren, Wissen (z. B. für Familie/Schwager)
-  const sichtbar = state.settings.einfach ? TABS.filter(t => ["start", "fahren", "wissen"].includes(t.id)) : TABS;
+  // Einfacher Modus: nur Start, Laden, Meins (z. B. für Familie/Schwager)
+  const sichtbar = state.settings.einfach ? TABS.filter(t => ["start", "laden", "meins"].includes(t.id)) : TABS;
   if (!sichtbar.find(t => t.id === state.tab)) state.tab = "start";
   // To-do-Zähler am Start-Tab: sehen, dass etwas ansteht — ohne zu lesen
   let badge = 0;
@@ -1945,13 +1970,24 @@ function viewStart() {
   const acts = aktionen(ana);
   let html = "";
 
+  // ---------- Geführter Start: „Was willst du tun?“ (Orientierung zuerst) ----------
+  html += `<div class="card">
+    <h1 style="margin:0">⚡ Was willst du tun?</h1>
+    <p class="lead" style="margin:4px 0 0">Tipp auf dein Ziel — den Rest erklärt dir die App Schritt für Schritt.</p>
+    <div class="launch">
+      <button class="launchbtn" data-tab="reise"><span class="lg">🧭</span><b>Route planen</b><small>Ladestopps für deine Fahrt</small></button>
+      <button class="launchbtn" data-tab="laden"><span class="lg">🔌</span><b>Säule finden</b><small>Schnelllader in der Nähe</small></button>
+      <button class="launchbtn" data-tab="laden"><span class="lg">⏱️</span><b>Laden-Timer</b><small>Dauer &amp; Kosten beim Laden</small></button>
+      <button class="launchbtn" data-tab="meins"><span class="lg">💳</span><b>Karten &amp; Preise</b><small>beste Ladekarte finden</small></button>
+    </div></div>`;
+
   // ---------- Kontext zuerst: Was ist JETZT wichtig? ----------
   // Läuft gerade eine Ladung? Timer-Status ganz oben, egal wo gestartet
   if (state.ladeTimer) {
     const minL = Math.floor((Date.now() - state.ladeTimer.start) / 60000);
     const restL = state.ladeTimer.grenze == null ? null : state.ladeTimer.grenze - minL;
     html += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p><span class="pulsdot"></span>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="fahren">Zum Timer</button></div></div>`;
+      <div class="btnrow"><button class="btn small primary" data-tab="laden">Zum Timer</button></div></div>`;
   }
   // Heute unterwegs? Live-Ansicht mit dem nächsten Stopp
   const heuteTrip = state.trips.find(t => t.datum === heute() && t.stopps && t.stopps.length);
@@ -1979,7 +2015,7 @@ function viewStart() {
     const clN = tripCheckliste(nT, tripAnalyse(nT));
     const offen = clN.filter((x, i) => !state.checks[nT.id + "-" + i]).length;
     html += `<div class="card alert info"><p>🧳 <b>${tg === 1 ? "Morgen" : "In " + tg + " Tagen"}: ${esc(nT.ziel)}</b>${offen ? ` — noch <b>${offen}</b> Punkt${offen === 1 ? "" : "e"} auf der Checkliste` : " — Checkliste komplett ✓"}</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="trips">Zum Trip</button></div></div>`;
+      <div class="btnrow"><button class="btn small primary" data-tab="reise">Zum Trip</button></div></div>`;
   }
 
   // Erster Start: 3 kurze Fragen statt Erklärtext — danach ist alles vorbefüllt
@@ -1993,7 +2029,7 @@ function viewStart() {
         <div class="btnrow"><button class="btn small primary" data-action="ob-weiter">Weiter →</button><button class="btn small ghost" data-action="intro-weg">Überspringen</button></div></div>`;
     } else if (schritt === 2) {
       html += `<div class="card alert info"><h3>Frage 2 von 3</h3>
-        <p><b>Wie viel fährst du ungefähr pro Monat?</b> <span class="muted small">Daraus schätzt die App deine Lademenge — später unter „Orte“ jederzeit anpassbar.</span></p>
+        <p><b>Wie viel fährst du ungefähr pro Monat?</b> <span class="muted small">Daraus schätzt die App deine Lademenge — später unter „Meins → Auto &amp; Orte“ jederzeit anpassbar.</span></p>
         <div class="btnrow">${[500, 1000, 1500, 2500].map(km => `<button class="btn small" data-action="ob-km" data-km="${km}">~${n0(km)} km</button>`).join("")}<button class="btn small ghost" data-action="ob-weiter">Überspringen</button></div></div>`;
     } else {
       html += `<div class="card alert info"><h3>Frage 3 von 3</h3>
@@ -2068,14 +2104,14 @@ function viewStart() {
           : `<span class="pill good">läuft noch ${tm.tage} Tag${tm.tage === 1 ? "" : "e"}</span>`;
         return `<li><b>${esc(a.anbieter || "")}</b>: ${esc(a.text || "")} ${pill}</li>`;
       }).join("") + `</ul>
-      <div class="btnrow"><button class="btn small primary" data-tab="tarife">Angebote &amp; Buchungszeit</button></div></div>`;
+      <div class="btnrow"><button class="btn small primary" data-tab="meins">Angebote &amp; Buchungszeit</button></div></div>`;
   }
 
   // Preis-Stand-Warnung
   const tage = Math.floor((new Date() - new Date(state.settings.preiseGeprueft)) / 864e5);
   if (tage > 60) {
     html += `<div class="card alert"><h3>⚠️ Preise veraltet (${tage} Tage)</h3>
-      <p>Ladepreise ändern sich oft. Bitte unter <b>Tarife</b> kurz gegen die Anbieter-Apps prüfen und auf „Preise geprüft“ tippen.</p></div>`;
+      <p>Ladepreise ändern sich oft. Bitte unter <b>Meins → Karten &amp; Preise</b> kurz gegen die Anbieter-Apps prüfen und auf „Preise geprüft“ tippen.</p></div>`;
   }
 
   // Hero-Zahlen als Bento-Raster: Größe = Wichtigkeit
@@ -2088,8 +2124,8 @@ function viewStart() {
 
   if (!ana.kwhGesamt) {
     html += `<div class="card alert info"><h3>📍 Erster Schritt: deine Ladeorte</h3>
-      <p>Trage unter <b>Orte</b> ein, wo und wie viel (kWh/Monat) du laden wirst — erst dann kann die App Karten-Empfehlungen, To-dos und Break-even für dich rechnen. Für Reisen: direkt zu <b>Trips</b>.</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="orte">Zu den Orten</button><button class="btn small" data-tab="trips">Route planen</button></div></div>`;
+      <p>Trage unter <b>Meins → Auto &amp; Orte</b> ein, wo und wie viel (kWh/Monat) du laden wirst — erst dann kann die App Karten-Empfehlungen, To-dos und Break-even für dich rechnen. Für Reisen: direkt zu <b>Reise</b>.</p>
+      <div class="btnrow"><button class="btn small primary" data-tab="meins">Zu den Orten</button><button class="btn small" data-tab="reise">Route planen</button></div></div>`;
   }
 
   // Statistik aus dem Lade-Logbuch (echte Zahlen) — auf Abruf
@@ -2176,7 +2212,7 @@ function viewStart() {
     <hr class="divider">
     <label style="display:flex;gap:10px;align-items:center;cursor:pointer">
       <input type="checkbox" data-scheck="einfach" ${state.settings.einfach ? "checked" : ""}>
-      <span><b>Einfacher Modus</b> — nur Start, Fahren &amp; Wissen (z. B. wenn du die App weitergibst)</span>
+      <span><b>Einfacher Modus</b> — nur Start, Laden &amp; Meins (z. B. wenn du die App weitergibst)</span>
     </label>
     <details class="plain"><summary>Erweitert: Update-Quelle, Neu-Recherche-Token &amp; Selbsttest</summary>
       <label class="f">URL zur tarife.json auf deinem Server</label>
@@ -2763,7 +2799,7 @@ function viewFahren() {
       ${best.unsicher ? '<div class="small">⚠ Preis variiert — kurz in der App checken</div>' : ""}
       ${best.grund && best.tarif.kategorie === "abo" ? `<div class="small">(läuft in deinem Abo, ${eur(best.grund)}/Mon. bereits gezahlt)</div>` : ""}
     </div>
-    ${besserer ? `<div class="card alert info" style="margin-top:12px"><h3>💡 Spartipp</h3><p><b>${esc(besserer.tarif.name)}</b> wäre hier mit ${ct(besserer.preis)} günstiger — unter <b>Tarife</b> einrichten${besserer.tarif.kategorie === "abo" ? " (Abo, vorher Break-even checken)" : " (kostenlos)"}.</p></div>` : ""}
+    ${besserer ? `<div class="card alert info" style="margin-top:12px"><h3>💡 Spartipp</h3><p><b>${esc(besserer.tarif.name)}</b> wäre hier mit ${ct(besserer.preis)} günstiger — unter <b>Meins → Karten &amp; Preise</b> einrichten${besserer.tarif.kategorie === "abo" ? " (Abo, vorher Break-even checken)" : " (kostenlos)"}.</p></div>` : ""}
     <div class="card" style="margin-top:12px"><h3>Wenn's nicht klappt — der Reihe nach:</h3>
       <ol class="fallback">${liste.slice(1, 4).filter(l => l.tarif.id !== "adhoc").map(l => `<li><b>${esc(kurzName(l.tarif))}</b> — ${ct(l.preis)}${l.unsicher ? " ⚠" : ""}</li>`).join("")}
       <li><b>Ad-hoc:</b> QR-Code auf der Säule oder Kreditkarte ans Terminal</li>
@@ -3182,7 +3218,7 @@ function bindDynamic() {
 
 document.addEventListener("click", (e) => {
   const tabBtn = e.target.closest("[data-tab]");
-  if (tabBtn) { state.tab = tabBtn.dataset.tab; save(); render(); return; }
+  if (tabBtn) { state.tab = tabBtn.dataset.tab; meinsOpen = ""; save(); render(); return; }
   const driveBtn = e.target.closest("[data-drive]");
   if (driveBtn) { state.driveNetz = driveBtn.dataset.drive; save(); render(); return; }
   const infoB = e.target.closest("[data-info]");
@@ -3196,6 +3232,7 @@ document.addEventListener("click", (e) => {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const act = btn.dataset.action, id = btn.dataset.id;
+  if (act === "hilfe") { state.tab = "meins"; meinsOpen = "wissen"; save(); render(); return; }
   if (act === "intro-weg") { state.settings.introWeg = true; }
   if (act === "ob-weiter") {
     // Onboarding: angehakte Karten übernehmen, dann nächste Frage
@@ -3223,7 +3260,7 @@ document.addEventListener("click", (e) => {
   if (act === "trip-kaelte-calc") {
     const trC = state.trips.find(t => t.id === id);
     if (trC && trC.stopps) stoppsNeuBerechnen(trC);
-    state.tab = "trips";
+    state.tab = "reise";
   }
   if (act === "installieren") {
     if (installPrompt) { installPrompt.prompt(); installPrompt.userChoice.finally(() => { installPrompt = null; render(); }); }
@@ -3290,7 +3327,7 @@ document.addEventListener("click", (e) => {
     const trip = state.trips.find(t => t.id === id);
     if (!trip || !trip.startQ) { alert("Diese Route hat keine gespeicherten Adressen — bitte im Planer neu anlegen."); return; }
     state.planer = Object.assign({}, state.planer, { start: trip.zielQ, ziel: trip.startQ, via: trip.viaQ || "" });
-    state.tab = "trips"; save(); render();
+    state.tab = "reise"; save(); render();
     routePlanen();
     return;
   }
@@ -3358,7 +3395,7 @@ document.addEventListener("click", (e) => {
   if (act === "ort-saeulen") {
     const ort = state.orte.find(o => o.id === id);
     if (!ort || !(ort.adresse || "").trim()) { alert("Erst beim Ort eine Adresse eintragen — dann findet die App die Säulen dort."); return; }
-    state.tab = "fahren"; save(); render();
+    state.tab = "laden"; save(); render();
     adresseSuche(ort.adresse.trim());
     return;
   }
@@ -3673,8 +3710,8 @@ let goShortcut = "";
 state.cockpit = false; // nur per ?go=cockpit-Shortcut aktiv, nie aus altem Speicherstand
 try {
   goShortcut = new URLSearchParams(location.search).get("go") || "";
-  if (goShortcut === "trips") state.tab = "trips";
-  if (goShortcut === "saeulen" || goShortcut === "timer" || goShortcut === "cockpit") state.tab = "fahren";
+  if (goShortcut === "trips") state.tab = "reise";
+  if (goShortcut === "saeulen" || goShortcut === "timer" || goShortcut === "cockpit") state.tab = "laden";
   if (goShortcut === "cockpit") state.cockpit = true;   // Kurzmodus: nur die Reichweiten-Antwort
   if (goShortcut) history.replaceState(null, "", location.pathname);
 } catch (e) { /* egal */ }
@@ -3701,7 +3738,7 @@ setInterval(() => {
     if (rest <= 10 && rest > 0 && !t.warn10) { t.warn10 = true; benachrichtige("⏱ Gleich Blockiergebühr", "Noch " + rest + " min gratis — Ladung bald beenden oder umparken."); save(); }
     if (rest <= 0 && !t.warn0) { t.warn0 = true; benachrichtige("💸 Blockiergebühr läuft!", "Die Standzeitgebühr (~10 ct/min) hat begonnen — Auto umparken."); save(); }
   }
-  if (state.ladeTimer && state.tab === "fahren") render();
+  if (state.ladeTimer && state.tab === "laden") render();
 }, 60000);
 // Routen-Karten an die Fensterbreite anpassen
 window.addEventListener("resize", skaliereKarten);

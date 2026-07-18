@@ -232,11 +232,39 @@ main { padding: 16px 0 30px; }
   pointer-events: none; z-index: 0; filter: saturate(0);
 }
 .tabpane[data-bereich="start"]::before { content: "⚡"; }
-.tabpane[data-bereich="orte"]::before { content: "📍"; }
-.tabpane[data-bereich="tarife"]::before { content: "💳"; }
-.tabpane[data-bereich="trips"]::before { content: "🗺️"; }
-.tabpane[data-bereich="fahren"]::before { content: "🚗"; }
-.tabpane[data-bereich="wissen"]::before { content: "📖"; }
+.tabpane[data-bereich="reise"]::before { content: "🗺️"; }
+.tabpane[data-bereich="laden"]::before { content: "🔌"; }
+.tabpane[data-bereich="meins"]::before { content: "💳"; }
+
+/* ---------- Geführter Start-Launcher „Was willst du tun?“ ---------- */
+.launch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.launchbtn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; padding: 14px; border-radius: 16px; cursor: pointer;
+  background: var(--card2, rgba(255,255,255,.03)); border: 1px solid var(--hairline);
+  color: var(--ink); transition: border-color .15s, transform .1s, background .15s;
+}
+.launchbtn:hover { border-color: var(--accent, #38BDF8); transform: translateY(-1px); }
+.launchbtn:active { transform: translateY(0); }
+.launchbtn .lg { font-size: 1.7rem; line-height: 1.1; }
+.launchbtn b { font-size: .98rem; }
+.launchbtn small { color: var(--ink2); font-size: .76rem; }
+@media (max-width: 360px) { .launch { grid-template-columns: 1fr; } }
+
+/* ---------- Ruhige Tab-Kopfzeile (Orientierung: „wo bin ich, was mache ich hier“) ---------- */
+.tabhead { margin: 2px 0 14px; }
+.tabhead h1 { margin: 0 0 2px; }
+.tabhead .lead { margin: 0; color: var(--ink2); font-size: .9rem; max-width: 46ch; }
+
+/* ---------- Gruppen-Aufklapper (im „Meins“-Tab) ---------- */
+details.grp { border: 1px solid var(--hairline); border-radius: 16px; margin: 12px 0; overflow: hidden; background: var(--card2, rgba(255,255,255,.02)); }
+details.grp > summary { list-style: none; cursor: pointer; padding: 15px 16px; font-weight: 650; font-size: 1.02rem; display: flex; align-items: center; gap: 8px; }
+details.grp > summary::-webkit-details-marker { display: none; }
+details.grp > summary::after { content: "⌄"; margin-left: auto; opacity: .6; font-size: 1.2rem; transition: transform .2s; }
+details.grp[open] > summary::after { transform: rotate(180deg); }
+details.grp > summary:hover { background: rgba(127,127,127,.06); }
+details.grp .grpbody { padding: 0 14px 12px; }
+details.grp .grpbody > h1:first-child { display: none; }
 
 /* ---------- Puls (laufender Lade-Timer) ---------- */
 .pulsdot {
