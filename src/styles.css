@@ -10,6 +10,8 @@
   --ink2: #4C5A69;
   --muted: #8493A3;
   --hairline: rgba(19, 26, 35, 0.10);
+  --edge: rgba(19, 26, 35, 0.18);
+  --field: #FBFCFE;
   --accent: #2A78D6;
   --accent-ink: #FFFFFF;
   --accent-soft: rgba(42, 120, 214, 0.10);
@@ -34,12 +36,14 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #04060B;
-    --card: #0B111C;
-    --card2: #131B2A;
+    --card: #0E1522;
+    --card2: #1B2536;
     --ink: #E9EEF4;
     --ink2: #9AAABB;
     --muted: #6B7A8C;
-    --hairline: rgba(233, 238, 244, 0.09);
+    --hairline: rgba(233, 238, 244, 0.10);
+    --edge: rgba(233, 238, 244, 0.20);
+    --field: #080D16;
     --accent: #3987E5;
     --accent-ink: #FFFFFF;
     --accent-soft: rgba(57, 135, 229, 0.16);
@@ -59,6 +63,7 @@
   --bg: #F2F4F7; --card: #FFFFFF; --card2: #EBEFF4;
   --ink: #131A23; --ink2: #4C5A69; --muted: #8493A3;
   --hairline: rgba(19, 26, 35, 0.10);
+  --edge: rgba(19, 26, 35, 0.18); --field: #FBFCFE;
   --accent: #2A78D6; --accent-ink: #FFFFFF; --accent-soft: rgba(42, 120, 214, 0.10);
   --good: #0A7D0A; --good-soft: rgba(12, 163, 12, 0.12);
   --warn: #9A6700; --warn-stripe: #FAB219; --warn-soft: rgba(250, 178, 25, 0.14);
@@ -68,9 +73,10 @@
   --shadow: 0 1px 2px rgba(10, 20, 35, 0.06), 0 4px 14px rgba(10, 20, 35, 0.06);
 }
 :root[data-theme="dark"] {
-  --bg: #04060B; --card: #0B111C; --card2: #131B2A;
+  --bg: #04060B; --card: #0E1522; --card2: #1B2536;
   --ink: #E9EEF4; --ink2: #9AAABB; --muted: #6B7A8C;
-  --hairline: rgba(233, 238, 244, 0.09);
+  --hairline: rgba(233, 238, 244, 0.10);
+  --edge: rgba(233, 238, 244, 0.20); --field: #080D16;
   --accent: #3987E5; --accent-ink: #FFFFFF; --accent-soft: rgba(57, 135, 229, 0.16);
   --good: #35C06A; --good-soft: rgba(12, 163, 12, 0.18);
   --warn: #FAB219; --warn-stripe: #FAB219; --warn-soft: rgba(250, 178, 25, 0.12);
@@ -140,11 +146,12 @@ nav.top button, .tabbar button {
 nav.top button:hover { background: var(--card2); }
 nav.top button.on { background: color-mix(in srgb, var(--neon1) 15%, transparent); color: var(--neon1); text-shadow: 0 0 14px rgba(56, 189, 248, 0.55); }
 .iconbtn {
-  appearance: none; border: 1px solid var(--hairline); background: var(--card);
-  color: var(--ink2); width: 34px; height: 34px; border-radius: 8px;
+  appearance: none; border: 1px solid var(--edge); background: var(--card2);
+  color: var(--ink); width: 36px; height: 36px; border-radius: 9px;
   cursor: pointer; font-size: 15px; margin-left: 6px; flex: none;
-  font-weight: 700;
+  font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.14);
 }
+.iconbtn:hover { border-color: var(--accent); }
 
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
@@ -185,7 +192,7 @@ main { padding: 16px 0 30px; }
 
 /* ---------- Karten ---------- */
 .card {
-  background: var(--card); border: 1px solid var(--hairline);
+  background: var(--card); border: 1px solid var(--edge);
   border-radius: var(--radius); padding: 14px 16px;
   box-shadow: var(--shadow);
 }
@@ -240,9 +247,10 @@ main { padding: 16px 0 30px; }
 .launch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .launchbtn {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
-  text-align: left; padding: 14px; border-radius: 16px; cursor: pointer;
-  background: var(--card2, rgba(255,255,255,.03)); border: 1px solid var(--hairline);
-  color: var(--ink); transition: border-color .15s, transform .1s, background .15s;
+  text-align: left; padding: 15px; border-radius: 16px; cursor: pointer;
+  background: var(--card2, rgba(255,255,255,.03)); border: 1px solid var(--edge);
+  color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.14), 0 3px 10px rgba(0,0,0,.12);
+  transition: border-color .15s, transform .1s, background .15s, box-shadow .15s;
 }
 .launchbtn:hover { border-color: var(--accent, #38BDF8); transform: translateY(-1px); }
 .launchbtn:active { transform: translateY(0); }
@@ -295,33 +303,45 @@ details.grp .grpbody > h1:first-child { display: none; }
 .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .pill.crit { background: var(--crit-soft); color: var(--crit); border-color: transparent; }
 
-/* ---------- Buttons & Formulare ---------- */
+/* ---------- Buttons & Formulare ----------
+   Klare Affordanz: BUTTONS wirken erhaben (heller gefüllt, sichtbarer Rand,
+   Schlagschatten, Druck-Feedback) — EINGABEFELDER wirken eingelassen (dunkler,
+   Innenschatten). So sieht man auf einen Blick, was man tippt und was man ausfüllt. */
 .btn {
   appearance: none; font-family: inherit; cursor: pointer;
-  border: 1px solid var(--hairline); border-radius: 8px;
+  border: 1px solid var(--edge); border-radius: 10px;
   background: var(--card2); color: var(--ink);
-  font-size: .92rem; font-weight: 650; padding: 9px 15px;
+  font-size: .92rem; font-weight: 650; padding: 9px 16px;
+  box-shadow: 0 1px 1px rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.14);
+  transition: border-color .14s, transform .07s, box-shadow .14s, filter .14s;
 }
-.btn:hover { border-color: var(--accent); }
+.btn:hover { border-color: var(--accent); box-shadow: 0 2px 10px rgba(0,0,0,.22); }
+.btn:active { transform: translateY(1px); box-shadow: 0 1px 1px rgba(0,0,0,.2); }
 .btn.primary { background: var(--neon); color: #fff; border-color: transparent; box-shadow: var(--neon-glow); }
-.btn.primary:hover { filter: brightness(1.12); }
-.btn.small { font-size: .8rem; padding: 5px 10px; }
-.btn.ghost { background: none; }
-.btn.danger { color: var(--crit); }
+.btn.primary:hover { filter: brightness(1.1); box-shadow: var(--neon-glow), 0 3px 12px rgba(0,0,0,.25); }
+.btn.small { font-size: .82rem; padding: 7px 12px; }
+.btn.ghost { background: color-mix(in srgb, var(--ink) 6%, transparent); box-shadow: none; }
+.btn.ghost:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.btn.danger { color: var(--crit); border-color: color-mix(in srgb, var(--crit) 40%, var(--edge)); }
 .btnrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
-label.f { display: block; font-size: .8rem; font-weight: 650; color: var(--ink2); margin: 10px 0 3px; }
-input[type="text"], input[type="number"], input[type="date"], select, textarea {
+label.f { display: block; font-size: .8rem; font-weight: 650; color: var(--ink2); margin: 10px 0 4px; }
+input[type="text"], input[type="number"], input[type="date"], input[type="time"], select, textarea {
   width: 100%; font-family: inherit; font-size: .95rem;
-  background: var(--bg); color: var(--ink);
-  border: 1px solid var(--hairline); border-radius: 8px; padding: 8px 10px;
+  background: var(--field); color: var(--ink);
+  border: 1.5px solid var(--edge); border-radius: 10px; padding: 10px 12px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.14);
 }
-input:focus-visible, select:focus-visible, button:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 1px;
+select { cursor: pointer; }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.14), 0 0 0 3px var(--accent-soft);
 }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .frow { display: flex; gap: 10px; flex-wrap: wrap; }
 .frow > div { flex: 1 1 130px; min-width: 0; }
-input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
+input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
 
 /* ---------- Tabellen ---------- */
 .tblwrap { overflow-x: auto; margin: 8px -16px 0; padding: 0 16px; }
@@ -452,7 +472,8 @@ code { background: var(--card2); border-radius: 4px; padding: 1px 5px; font-size
 .gap4 { display: flex; flex-direction: column; gap: 4px; }
 .footer-note { text-align: center; color: var(--muted); font-size: .78rem; margin-top: 26px; }
 .hidden { display: none !important; }
-.del { color: var(--crit); background: none; border: 0; cursor: pointer; font-size: .8rem; font-weight: 650; padding: 4px; }
+.del { color: var(--crit); background: color-mix(in srgb, var(--crit) 8%, transparent); border: 1px solid color-mix(in srgb, var(--crit) 26%, transparent); border-radius: 8px; cursor: pointer; font-size: .8rem; font-weight: 650; padding: 5px 11px; }
+.del:hover { background: color-mix(in srgb, var(--crit) 15%, transparent); }
 
 @media (prefers-reduced-motion: no-preference) {
   /* Gestaffeltes Einblenden NUR beim Tab-Wechsel (.neu) — nie beim Tippen */
