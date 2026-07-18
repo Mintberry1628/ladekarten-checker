@@ -1977,8 +1977,8 @@ function viewStart() {
     <div class="launch">
       <button class="launchbtn" data-tab="reise"><span class="lg">🧭</span><b>Route planen</b><small>Ladestopps für deine Fahrt</small></button>
       <button class="launchbtn" data-tab="laden"><span class="lg">🔌</span><b>Säule finden</b><small>Schnelllader in der Nähe</small></button>
-      <button class="launchbtn" data-tab="laden"><span class="lg">⏱️</span><b>Laden-Timer</b><small>Dauer &amp; Kosten beim Laden</small></button>
-      <button class="launchbtn" data-tab="meins"><span class="lg">💳</span><b>Karten &amp; Preise</b><small>beste Ladekarte finden</small></button>
+      <button class="launchbtn" data-tab="meins" data-mgrp="auto"><span class="lg">📍</span><b>Meine Orte</b><small>wo du lädst → beste Karte</small></button>
+      <button class="launchbtn" data-tab="meins" data-mgrp="karten"><span class="lg">💳</span><b>Karten &amp; Preise</b><small>Tarife, Angebote, Buchungszeit</small></button>
     </div></div>`;
 
   // ---------- Kontext zuerst: Was ist JETZT wichtig? ----------
@@ -2125,7 +2125,7 @@ function viewStart() {
   if (!ana.kwhGesamt) {
     html += `<div class="card alert info"><h3>📍 Erster Schritt: deine Ladeorte</h3>
       <p>Trage unter <b>Meins → Auto &amp; Orte</b> ein, wo und wie viel (kWh/Monat) du laden wirst — erst dann kann die App Karten-Empfehlungen, To-dos und Break-even für dich rechnen. Für Reisen: direkt zu <b>Reise</b>.</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="meins">Zu den Orten</button><button class="btn small" data-tab="reise">Route planen</button></div></div>`;
+      <div class="btnrow"><button class="btn small primary" data-tab="meins" data-mgrp="auto">Zu den Orten</button><button class="btn small" data-tab="reise">Route planen</button></div></div>`;
   }
 
   // Statistik aus dem Lade-Logbuch (echte Zahlen) — auf Abruf
@@ -2521,8 +2521,19 @@ function viewTrips() {
     ${routeStatus.startsWith("fehler:") ? `<p class="small" style="color:var(--crit)">${esc(routeStatus.slice(7))}</p>` : ""}
     ${state.planer.alts && state.planer.alts.length > 1 ? `<p class="small" style="margin-top:8px"><b>Alternative Routen:</b> ${state.planer.alts.map(a =>
       `<button class="btn small ${a.i === state.planer.altGewaehlt ? "primary" : ""}" data-action="route-alt" data-i="${a.i}">Route ${a.i + 1}: ${n0(a.km)} km, ${Math.floor(a.min / 60)}:${String(a.min % 60).padStart(2, "0")} h</button>`).join(" ")}</p>` : ""}
-    ${!(state.settings.ocmKey || "").trim() ? '<p class="small" style="color:var(--warn)">Hinweis: Ohne OpenChargeMap-Key (unter <b>Fahren</b> eintragen) werden Stopp-Positionen geplant, aber keine konkreten Säulen vorgeschlagen.</p>' : ""}
+    ${!(state.settings.ocmKey || "").trim() ? '<p class="small" style="color:var(--warn)">Hinweis: Ohne OpenChargeMap-Key (unter <b>Laden</b> eintragen) werden Stopp-Positionen geplant, aber keine konkreten Säulen vorgeschlagen.</p>' : ""}
   </div>`;
+  if (!state.trips.length && !(routeStatus && !routeStatus.startsWith("fehler:"))) {
+    html += `<div class="card flat" style="text-align:center;padding:28px 18px;margin-top:12px">
+      <div style="font-size:2.6rem;line-height:1">🗺️</div>
+      <h2 style="margin:.35em 0 .2em">Noch keine Route geplant</h2>
+      <p class="small muted" style="max-width:36ch;margin:0 auto 14px">Gib oben <b>Start</b> und <b>Ziel</b> ein (z. B. München → Fojnica). Die App findet passende Ladestopps, rechnet die Kosten und sagt dir die beste Ladekarte für genau diese Fahrt.</p>
+      <div class="btnrow" style="justify-content:center">
+        <button class="btn primary" data-action="planer-fokus">➕ Route eingeben</button>
+        ${(state.routenVerlauf || []).length ? `<button class="btn" data-action="verlauf-plan" data-i="0">↻ Letzte erneut</button>` : ""}
+      </div>
+    </div>`;
+  }
   for (const trip of state.trips) {
     const ana = tripAnalyse(trip);
     const cl = tripCheckliste(trip, ana);
@@ -3219,7 +3230,7 @@ function bindDynamic() {
 
 document.addEventListener("click", (e) => {
   const tabBtn = e.target.closest("[data-tab]");
-  if (tabBtn) { state.tab = tabBtn.dataset.tab; meinsOpen = ""; save(); render(); return; }
+  if (tabBtn) { state.tab = tabBtn.dataset.tab; meinsOpen = tabBtn.dataset.mgrp || ""; save(); render(); return; }
   const driveBtn = e.target.closest("[data-drive]");
   if (driveBtn) { state.driveNetz = driveBtn.dataset.drive; save(); render(); return; }
   const infoB = e.target.closest("[data-info]");
@@ -3234,6 +3245,7 @@ document.addEventListener("click", (e) => {
   if (!btn) return;
   const act = btn.dataset.action, id = btn.dataset.id;
   if (act === "hilfe") { state.tab = "meins"; meinsOpen = "wissen"; save(); render(); return; }
+  if (act === "planer-fokus") { const el = $("#route-start"); if (el) { el.focus(); el.scrollIntoView({ block: "center", behavior: "smooth" }); } return; }
   if (act === "intro-weg") { state.settings.introWeg = true; }
   if (act === "ob-weiter") {
     // Onboarding: angehakte Karten übernehmen, dann nächste Frage
