@@ -1817,14 +1817,20 @@ function breakEvenChart(kontextId) {
   // Karten mit Voraussetzung (ADAC-Mitgliedschaft) nicht als kostenlose Basis werten,
   // solange du sie nicht hast — sonst gäbe es z. B. bei Aral keinen Break-even-Punkt.
   let linien = preiseAnNetz(ctx.netz, ctx.art).filter(l => nutzbar(l.tarif));
-  // Deckungsgleiche Linien (gleicher Preis + Grundgebühr) nur einmal zeigen
-  const gesehen = new Set();
-  linien = linien.filter(l => {
+  // Deckungsgleiche Linien (gleicher Preis + Grundgebühr) nur einmal zeigen —
+  // bei Gleichstand die NETZ-EIGENE Karte (expliziter Preis an genau diesem Netz)
+  // als Vertreter bevorzugen. Sonst stünde bei Aral „gegenüber Maingau“ (zufällig
+  // erstsortierte Roaming-Karte mit variablem Staffelpreis) statt der ehrlichen,
+  // festen Basis „Aral pulse Klassik“.
+  const netzEigen = t => !!(t.preise && t.preise[ctx.netz] && t.preise[ctx.netz][ctx.art] != null);
+  const repIdx = new Map();
+  const dedup = [];
+  for (const l of linien) {
     const k = (l.grund || 0).toFixed(2) + "|" + l.preis.toFixed(3);
-    if (gesehen.has(k)) return false;
-    gesehen.add(k);
-    return true;
-  });
+    if (!repIdx.has(k)) { repIdx.set(k, dedup.length); dedup.push(l); }
+    else { const i = repIdx.get(k); if (netzEigen(l.tarif) && !netzEigen(dedup[i].tarif)) dedup[i] = l; }
+  }
+  linien = dedup;
   // max. 5 Serien: günstigste Abos + günstigste freie + ad-hoc als Referenz
   const frei = linien.filter(l => !l.grund).slice(0, 2);
   const abos = linien.filter(l => l.grund > 0).slice(0, 2);
