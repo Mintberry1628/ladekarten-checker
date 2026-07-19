@@ -162,6 +162,7 @@ function besterPreis(netzId, art, tarifIds) {
   let best = null;
   for (const t of state.tarife) {
     if (tarifIds && !tarifIds.includes(t.id)) continue;
+    if (!nutzbar(t)) continue; // z. B. ADAC e-Charge nur, wenn du ADAC-Mitglied bist
     const p = tarifPreis(t, netzId, art);
     if (p && (best == null || p.preis < best.preis)) best = { preis: p.preis, unsicher: p.unsicher, tarif: t, name: t.name };
   }
@@ -632,6 +633,10 @@ function logbuchStatistik() {
 function besitzt(t) {
   return t.id === "adhoc" ? true : (t.kategorie === "abo" ? !!state.abos[t.id] : !!state.karten[t.id]);
 }
+// Nutzbar für Auto-Empfehlungen/Bestpreis? Karten mit Voraussetzung (z. B. ADAC
+// e-Charge: kostenpflichtige ADAC-Mitgliedschaft) zählen nur, wenn du sie hast —
+// sonst würde die App sie fälschlich als „kostenlose Karte für jeden" vorschlagen.
+function nutzbar(t) { return !t.voraussetzung || besitzt(t); }
 // Verbrauch (kWh/100 km) je Ziel-Tempo — Grundlast + Luftwiderstand, kalibriert am 130-km/h-Wert
 function verbrauchBeiTempo(v, winterOderFaktor, beladenOverride) {
   const c130 = state.fahrzeug.verbrauchAB;
@@ -1809,7 +1814,9 @@ const CHART_KONTEXTE = [
 
 function breakEvenChart(kontextId) {
   const ctx = CHART_KONTEXTE.find(c => c.id === kontextId) || CHART_KONTEXTE[0];
-  let linien = preiseAnNetz(ctx.netz, ctx.art);
+  // Karten mit Voraussetzung (ADAC-Mitgliedschaft) nicht als kostenlose Basis werten,
+  // solange du sie nicht hast — sonst gäbe es z. B. bei Aral keinen Break-even-Punkt.
+  let linien = preiseAnNetz(ctx.netz, ctx.art).filter(l => nutzbar(l.tarif));
   // Deckungsgleiche Linien (gleicher Preis + Grundgebühr) nur einmal zeigen
   const gesehen = new Set();
   linien = linien.filter(l => {
@@ -2712,7 +2719,7 @@ function viewFahren() {
   const liste = alle.filter(l => besitzt(l.tarif));
   const best = liste[0];
   // Spartipp: erst kostenlose Karten vorschlagen, Abos nur wenn nichts Kostenloses billiger ist
-  const guenstiger = (l) => !besitzt(l.tarif) && (!best || l.preis < best.preis - 0.001);
+  const guenstiger = (l) => nutzbar(l.tarif) && !besitzt(l.tarif) && (!best || l.preis < best.preis - 0.001);
   const besserer = alle.find(l => guenstiger(l) && l.tarif.kategorie !== "abo") || alle.find(guenstiger);
   const f = state.fahrzeug;
   const hub = f.akkuNetto * 0.6; // 20 -> 80 %
