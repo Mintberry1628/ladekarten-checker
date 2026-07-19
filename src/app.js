@@ -5,6 +5,15 @@
 
 const DATA_VERSION = 7;
 const LS_KEY = "lkc-state-v1";
+// Sichtbare App-Version: build.sh ersetzt __BUILD__ bei jedem Build durch einen
+// frischen Zeitstempel (YYYYMMDDHHMMSS) — dieselbe Marke wie im Service-Worker-Cache.
+// Steigt also bei jeder Änderung monoton -> Cache-/Deploy-Check per Blick.
+const BUILD_VERSION = "__BUILD__";
+function buildLabel() {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(BUILD_VERSION);
+  if (!m) return "⚡ App-Version: Entwicklungs-Build (nicht über build.sh gebaut)";
+  return `⚡ App-Version ${BUILD_VERSION} — Stand ${m[3]}.${m[2]}.${m[1]}, ${m[4]}:${m[5]} Uhr`;
+}
 
 /* ---------- Hilfen ---------- */
 const $ = (sel, el) => (el || document).querySelector(sel);
@@ -1946,7 +1955,7 @@ function render() {
   const fn = { start: viewStart, reise: viewReise, laden: viewLaden, meins: viewMeins }[state.tab] || viewStart;
   const scrollVorher = window.scrollY;
   // data-bereich steuert das große Wasserzeichen-Icon je Tab (Orientierung)
-  main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}" data-bereich="${state.tab}">${fn()}</div>`;
+  main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}" data-bereich="${state.tab}">${fn()}<p class="footer-note" title="Diese Nummer steigt bei jeder neuen Version. Zeigt sie nach dem Laden nicht die erwartete/neuere Zahl, hängt der Browser-Cache — dann einmal neu laden (bzw. App schließen & öffnen).">${buildLabel()}</p></div>`;
   bindDynamic();
   // Nur beim Tab-Wechsel nach oben springen — sonst Leseposition behalten
   if (render.letzterTab !== state.tab) window.scrollTo(0, 0);

@@ -4,6 +4,8 @@
 #  - app-artifact.html : Variante ohne doctype/head/body für das Artifact-Hosting
 set -e
 cd "$(dirname "$0")"
+# EIN Build-Stempel für alles: sichtbare App-Version + Service-Worker-Cache
+STAMP=$(date +%Y%m%d%H%M%S)
 {
   cat src/head-index.html
   echo '<style>'
@@ -34,8 +36,12 @@ cd "$(dirname "$0")"
   cat src/app.js
   echo '</script>'
 } > app-artifact.html
-# Offline-Modus: Service Worker mit Build-Stempel + Web-App-Manifest
-sed "s/__BUILD__/$(date +%Y%m%d%H%M%S)/" src/sw.js > sw.js
+# Sichtbare App-Version in die gebauten HTML-Dateien einsetzen (BUILD_VERSION)
+for f in index.html app-artifact.html; do
+  sed "s/__BUILD__/$STAMP/g" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+done
+# Offline-Modus: Service Worker mit demselben Build-Stempel + Web-App-Manifest
+sed "s/__BUILD__/$STAMP/g" src/sw.js > sw.js
 cp src/manifest.json manifest.json
 node gen-tarife.js
-echo "OK: $(wc -c < index.html) Bytes index.html, $(wc -c < app-artifact.html) Bytes app-artifact.html, sw.js + manifest.json erzeugt"
+echo "OK: Build $STAMP — $(wc -c < index.html) Bytes index.html, $(wc -c < app-artifact.html) Bytes app-artifact.html, sw.js + manifest.json erzeugt"
