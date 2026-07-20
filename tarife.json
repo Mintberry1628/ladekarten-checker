@@ -1,8 +1,156 @@
 {
- "preisstand": "2026-07-13",
+ "preisstand": "2026-07-20",
  "entfernt": [],
- "aktionen": [],
- "aenderungen": [],
+ "aktionen": [
+  {
+   "anbieter": "EnBW",
+   "tarifId": "enbw-s",
+   "text": "Sommeraktion 5ct/kWh günstiger an EnBW-Säulen (0,46 statt 0,51 €/kWh)",
+   "von": "2026-07-08",
+   "bis": "2026-09-30",
+   "spartCt": 5,
+   "quelle": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife"
+  },
+  {
+   "anbieter": "EnBW",
+   "tarifId": "enbw-m",
+   "text": "Sommeraktion 5ct/kWh günstiger an EnBW-Säulen (0,36 statt 0,41 €/kWh)",
+   "von": "2026-07-08",
+   "bis": "2026-09-30",
+   "spartCt": 5,
+   "quelle": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife"
+  },
+  {
+   "anbieter": "EnBW",
+   "tarifId": "enbw-l",
+   "text": "Sommeraktion 5ct/kWh günstiger an EnBW-Säulen (0,29 statt 0,34 €/kWh)",
+   "von": "2026-07-08",
+   "bis": "2026-09-30",
+   "spartCt": 5,
+   "quelle": "https://www.enbw.com/elektromobilitaet/produkte/ladetarife"
+  }
+ ],
+ "aenderungen": [
+  {
+   "id": "swm-flex",
+   "was": "Roaming AC-Preis",
+   "alt": null,
+   "neu": 0.59,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-flex",
+   "was": "Roaming DC-Preis",
+   "alt": null,
+   "neu": 0.79,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-flex",
+   "was": "Blockiergebühr Roaming AC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-flex",
+   "was": "Blockiergebühr Roaming DC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-komfort",
+   "was": "Roaming AC-Preis",
+   "alt": null,
+   "neu": 0.54,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-komfort",
+   "was": "Roaming DC-Preis",
+   "alt": null,
+   "neu": 0.74,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-komfort",
+   "was": "Blockiergebühr Roaming AC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-komfort",
+   "was": "Blockiergebühr Roaming DC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-pro",
+   "was": "Roaming AC-Preis",
+   "alt": null,
+   "neu": 0.52,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-pro",
+   "was": "Roaming DC-Preis",
+   "alt": null,
+   "neu": 0.64,
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-pro",
+   "was": "Blockiergebühr Roaming AC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "swm-pro",
+   "was": "Blockiergebühr Roaming DC",
+   "alt": "Je Säule; an SWM-Säulen moderat.",
+   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
+   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
+  },
+  {
+   "id": "ionity-motion",
+   "was": "DC-Preis",
+   "alt": 0.49,
+   "neu": 0.53,
+   "quelle": "https://ionity.eu/de/netzwerk-und-preise"
+  },
+  {
+   "id": "ionity-power",
+   "was": "DC-Preis",
+   "alt": 0.39,
+   "neu": 0.44,
+   "quelle": "https://ionity.eu/de/netzwerk-und-preise"
+  },
+  {
+   "id": "ewego",
+   "was": "Blockiergebühr",
+   "alt": "Keine Blockiergebühr!",
+   "neu": "An Partner-Ladestationen: 0,10 €/min nach 4 Stunden, max. 24 €",
+   "quelle": "https://www.ewe-go.de/e-auto-laden/blockiergebuehr"
+  },
+  {
+   "id": "ewego",
+   "was": "Blockiergebühr Ab Minute AC",
+   "alt": null,
+   "neu": 240,
+   "quelle": "https://www.ewe-go.de/e-auto-laden/blockiergebuehr"
+  },
+  {
+   "id": "ewego",
+   "was": "Blockiergebühr Ab Minute DC",
+   "alt": null,
+   "neu": 240,
+   "quelle": "https://www.ewe-go.de/e-auto-laden/blockiergebuehr"
+  }
+ ],
  "tarife": [
   {
    "id": "maingau",
@@ -54,7 +202,7 @@
     "ac": 0.69,
     "dc": 0.69
    },
-   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC).",
+   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC), 10 ct/min, max. 12 €/Ladevorgang.",
    "blockierAbMin": {
     "ac": 240,
     "dc": 240
@@ -88,7 +236,7 @@
     "dc": 0.6
    },
    "roamingUnsicher": true,
-   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC).",
+   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC), 10 ct/min, max. 12 €/Ladevorgang.",
    "blockierAbMin": {
     "ac": 240,
     "dc": 240
@@ -121,7 +269,7 @@
     "dc": 0.55
    },
    "roamingUnsicher": true,
-   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC).",
+   "blockier": "Blockiergebühr nach 4 h Standzeit (AC/DC), 10 ct/min, max. 12 €/Ladevorgang.",
    "blockierAbMin": {
     "ac": 240,
     "dc": 240
@@ -144,9 +292,16 @@
      "dc": 0.69
     }
    },
-   "roaming": null,
-   "blockier": "Je Säule; an SWM-Säulen moderat.",
-   "hinweis": "Neu ab 1.7.2026. Für deine AC-Säulen ums Eck in München. Preise bestätigt für Juli 2026.",
+   "roaming": {
+    "ac": 0.59,
+    "dc": 0.79
+   },
+   "blockier": "An SWM-Ladestationen keine Blockiergebühr. An Ladestationen anderer Anbieter: 0,10 €/min (AC nach 240 min, DC nach 120 min), max. 25 €/Tag.",
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 120
+   },
+   "hinweis": "Neu ab 1.7.2026. An SWM-Ladestationen keine Blockiergebühr. Roaming-Preise und Blockiergebühren bei Partnern beachten (AC nach 240 min, DC nach 120 min, 0,10 €/min, max. 25 €/Tag). Preise bestätigt für Juli 2026.",
    "basisEmpfehlung": true
   },
   {
@@ -166,8 +321,16 @@
      "dc": 0.64
     }
    },
-   "roaming": null,
-   "hinweis": "Neu ab 1.7.2026. Lohnt ab ~99 kWh/Monat an SWM-Säulen gegenüber Flex. Preise bestätigt für Juli 2026."
+   "roaming": {
+    "ac": 0.54,
+    "dc": 0.74
+   },
+   "hinweis": "Neu ab 1.7.2026. Monatlich kündbar. An SWM-Ladestationen keine Blockiergebühr. Roaming-Preise und Blockiergebühren bei Partnern beachten (AC nach 240 min, DC nach 120 min, 0,10 €/min, max. 25 €/Tag). Preise bestätigt für Juli 2026.",
+   "blockier": "An SWM-Ladestationen keine Blockiergebühr. An Ladestationen anderer Anbieter: 0,10 €/min (AC nach 240 min, DC nach 120 min), max. 25 €/Tag.",
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 120
+   }
   },
   {
    "id": "swm-pro",
@@ -186,8 +349,16 @@
      "dc": 0.54
     }
    },
-   "roaming": null,
-   "hinweis": "Neu ab 1.7.2026. Nur für Viellader an SWM-Säulen. Preise bestätigt für Juli 2026."
+   "roaming": {
+    "ac": 0.52,
+    "dc": 0.64
+   },
+   "hinweis": "Neu ab 1.7.2026. Monatlich kündbar. An SWM-Ladestationen keine Blockiergebühr. Roaming-Preise und Blockiergebühren bei Partnern beachten (AC nach 240 min, DC nach 120 min, 0,10 €/min, max. 25 €/Tag). Preise bestätigt für Juli 2026.",
+   "blockier": "An SWM-Ladestationen keine Blockiergebühr. An Ladestationen anderer Anbieter: 0,10 €/min (AC nach 240 min, DC nach 120 min), max. 25 €/Tag.",
+   "blockierAbMin": {
+    "ac": 240,
+    "dc": 120
+   }
   },
   {
    "id": "aral-klassik",
@@ -204,7 +375,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "Seit 1.7.2026 um 7 ct gesenkt. DC bis 50 kW sogar 0,52. Kostenlos, nur App-Registrierung. Preise bestätigt für Juli 2026.",
+   "hinweis": "Seit 1.7.2026 gesenkt. AC 0,47 €/kWh, DC bis 50 kW 0,52 €/kWh, HPC (über 50 kW) 0,62 €/kWh. Kostenlos, nur App-Registrierung. Preise bestätigt für Juli 2026.",
    "basisEmpfehlung": true
   },
   {
@@ -223,7 +394,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "HPC 0,54, DC bis 50 kW 0,46, AC 0,41. Lohnt ab ~37 kWh/Monat an Aral pulse. Preise bestätigt für Juli 2026."
+   "hinweis": "HPC 0,54 €/kWh, DC bis 50 kW 0,46 €/kWh, AC 0,41 €/kWh. Lohnt ab ~37 kWh/Monat an Aral pulse. Preise bestätigt für Juli 2026."
   },
   {
    "id": "adac-echarge",
@@ -373,12 +544,12 @@
     "ac": 0.62,
     "dc": 0.62
    },
-   "blockier": "Keine Blockiergebühr!",
+   "blockier": "An EWE Go-Ladestationen keine Blockiergebühr. An Partner-Ladestationen: 0,10 €/min nach 4 Stunden Standzeit, maximal 24,00 € pro Ladevorgang.",
    "blockierAbMin": {
-    "ac": null,
-    "dc": null
+    "ac": 240,
+    "dc": 240
    },
-   "hinweis": "Transparent und ohne jede Zusatzgebühr. Interessant Richtung NRW (Oberhausen!) und als Backup: 0,62 überall im Roaming. Preise bestätigt für Juli 2026."
+   "hinweis": "Transparent. An EWE Go-Ladestationen keine Blockiergebühr. An Partner-Ladestationen fällt eine Blockiergebühr von 0,10 €/min nach 4 Stunden Standzeit an (max. 24 €). Interessant Richtung NRW (Oberhausen!) und als Backup: 0,62 überall im Roaming. Preise bestätigt für Juli 2026."
   },
   {
    "id": "kaufland-app",
@@ -395,7 +566,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "DC 0,44, HPC ab 150 kW 0,47. Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf. Preise bestätigt für Juli 2026.",
+   "hinweis": "AC 0,29 €/kWh, DC 0,44 €/kWh, HPC ab 150 kW 0,47 €/kWh. Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf. Preise bestätigt für Juli 2026.",
    "basisEmpfehlung": true
   },
   {
