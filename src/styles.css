@@ -202,6 +202,11 @@ nav.top button.on { background: var(--accent-soft); color: var(--accent); }
 .tabbar button svg { width: 22px; height: 22px; transition: transform .15s; }
 .tabbar button.on { color: var(--accent); background: var(--accent-soft); }
 .tabbar button.on svg { transform: translateY(-1px); }
+/* Feiner Neon-Strich über dem aktiven Tab — „hier bin ich“ auf einen Blick */
+.tabbar button.on::before {
+  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 2.5px; border-radius: 0 0 3px 3px; background: var(--neon);
+}
 
 /* To-do-Zähler am Start-Tab */
 .tabbar button, nav.top button { position: relative; }
@@ -276,26 +281,79 @@ main { padding: 18px 0 32px; }
 .tabpane[data-bereich="laden"]::before { content: "🔌"; }
 .tabpane[data-bereich="meins"]::before { content: "💳"; }
 
+/* ---------- Abschnitts-Marke ----------
+   Leiser Titel mit auslaufender Linie: gliedert lange Seiten in Bereiche,
+   damit Karten nicht als „ein Haufen“ wirken. Kein Rahmen, keine Farbe. */
+.sect { display: flex; align-items: center; gap: 12px; margin: 28px 2px 12px; }
+.sect > span {
+  font-size: .7rem; font-weight: 700; letter-spacing: .11em;
+  text-transform: uppercase; color: var(--muted); white-space: nowrap;
+}
+.sect::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.sect:first-child { margin-top: 4px; }
+.sect + .card, .sect + .grid { margin-top: 0; }
+
 /* ---------- Geführter Start-Launcher „Was willst du tun?“ ---------- */
-.launch { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 14px; }
+.launchcard h1 { margin: 0 0 3px; font-size: 1.35rem; }
+.launchcard .lead { margin: 0; color: var(--ink2); font-size: .9rem; }
+.launch { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 15px; }
 .launchbtn {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  text-align: left; padding: 15px 15px 16px; border-radius: 15px; cursor: pointer;
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; padding: 15px 15px 16px; border-radius: 16px; cursor: pointer;
   background: var(--card2); border: 1px solid var(--hairline);
   color: var(--ink); box-shadow: var(--shadow-sm);
-  transition: border-color .15s, transform .1s, box-shadow .15s;
+  transition: border-color .16s, transform .12s, box-shadow .16s;
 }
-.launchbtn:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
+.launchbtn::after {
+  content: "›"; position: absolute; top: 13px; right: 15px;
+  font-size: 1.2rem; line-height: 1; color: var(--muted); opacity: .55;
+  transition: transform .16s, color .16s, opacity .16s;
+}
+.launchbtn:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); transform: translateY(-2px); box-shadow: var(--shadow); }
+.launchbtn:hover::after { color: var(--accent); opacity: 1; transform: translateX(2px); }
 .launchbtn:active { transform: translateY(0); }
 .launchbtn .lg {
-  font-size: 1.35rem; line-height: 1; margin-bottom: 4px;
-  width: 42px; height: 42px; border-radius: 12px; flex: none;
+  font-size: 1.3rem; line-height: 1; margin-bottom: 9px;
+  width: 44px; height: 44px; border-radius: 13px; flex: none;
   display: grid; place-items: center;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--neon1) 26%, transparent), color-mix(in srgb, var(--neon2) 22%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neon2) 24%, transparent);
 }
 .launchbtn b { font-size: .98rem; font-weight: 700; }
-.launchbtn small { color: var(--muted); font-size: .77rem; }
+.launchbtn small { color: var(--muted); font-size: .77rem; line-height: 1.35; }
 @media (max-width: 360px) { .launch { grid-template-columns: 1fr; } }
+
+/* ---------- Erster Start: ein Bildschirm, eine Aufgabe ---------- */
+.onb { max-width: 520px; margin: 5vh auto 0; }
+.onbkopf { text-align: center; margin-bottom: 20px; }
+.onbkopf .lg { font-size: 2.6rem; line-height: 1; display: block; margin-bottom: 8px; }
+.onbkopf h1 { margin: 0 0 6px; }
+.onbkopf .lead { color: var(--ink2); margin: 0 auto; max-width: 38ch; font-size: .94rem; }
+.pts { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 16px; }
+.pts .pt { width: 7px; height: 7px; border-radius: 50%; background: var(--card3); transition: background .2s; }
+.pts .pt.on { background: var(--accent); }
+.pts .small { margin-left: 7px; }
+.onbfuss { text-align: center; margin-top: 18px; }
+.pickliste { display: grid; gap: 2px; margin: 13px 0 2px; }
+.pick {
+  display: flex; gap: 11px; align-items: center; cursor: pointer;
+  padding: 11px 12px; border-radius: 11px; border: 1px solid transparent;
+  font-size: .92rem; transition: background .14s, border-color .14s;
+}
+.pick:hover { background: var(--card2); }
+.pick:has(input:checked) { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+
+/* ---------- Nummerierter Weg (Leerzustand „so funktioniert's“) ---------- */
+ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 15px 0 4px; display: grid; gap: 13px; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; column-gap: 12px; }
+ol.steps li::before {
+  content: counter(s); grid-row: 1 / span 2;
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; background: var(--accent-soft); color: var(--accent);
+}
+ol.steps li b { grid-column: 2; font-size: .95rem; }
+ol.steps li span { grid-column: 2; font-size: .84rem; color: var(--ink2); line-height: 1.4; }
 
 /* ---------- Ruhige Tab-Kopfzeile (Orientierung: „wo bin ich, was mache ich hier“) ---------- */
 .tabhead { margin: 2px 0 16px; }
@@ -424,6 +482,18 @@ details { border-top: 1px solid var(--hairline); margin-top: 11px; padding-top: 
 details.plain { border: 0; margin: 5px 0 0; padding: 0; }
 summary { cursor: pointer; font-size: .85rem; font-weight: 650; color: var(--accent); }
 summary::marker { color: var(--muted); }
+/* Einheitliche Aufklapp-Geste: überall dasselbe Chevron rechts statt Dreieck links.
+   (Gruppen .grp und Empfehlungs-Zeilen .strategie bringen eigene Marker mit.) */
+details:not(.grp):not(.strategie) > summary {
+  list-style: none; position: relative; padding: 3px 26px 3px 0; border-radius: 8px;
+}
+details:not(.grp):not(.strategie) > summary::-webkit-details-marker { display: none; }
+details:not(.grp):not(.strategie) > summary::after {
+  content: "⌄"; position: absolute; right: 4px; top: 0;
+  font-size: 1.05rem; line-height: 1.5; color: var(--muted);
+  transition: transform .2s;
+}
+details:not(.grp):not(.strategie)[open] > summary::after { transform: rotate(180deg); }
 
 /* ---------- Rechenbeispiel ---------- */
 .calcbox {

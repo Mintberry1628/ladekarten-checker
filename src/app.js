@@ -282,6 +282,21 @@ function aktuelleAktionen() {
   return (state.aktionen || []).filter(a => !a.bis || a.bis >= heute())
     .sort((x, y) => (x.von || "0").localeCompare(y.von || "0"));
 }
+/* Mehrere Datensätze beschreiben oft DIESELBE Aktion (z. B. EnBW S/M/L einzeln).
+   Fürs Anzeigen zu einer Zeile bündeln — sonst liest man dreimal fast dasselbe.
+   Vertreter der Gruppe ist die Karte, die du schon hast (sonst die erste). */
+function aktionenGebuendelt() {
+  const map = new Map();
+  for (const a of aktuelleAktionen()) {
+    const key = [a.anbieter || "", a.von || "", a.bis || "", a.spartCt || ""].join("|");
+    const t = a.tarifId ? state.tarife.find(x => x.id === a.tarifId) : null;
+    let g = map.get(key);
+    if (!g) map.set(key, g = { a, tarife: [] });
+    if (t) g.tarife.push(t);
+    if (t && besitzt(t)) g.a = a;
+  }
+  return Array.from(map.values());
+}
 
 // Aktionsliste: bestellen / abonnieren / kündigen
 function aktionen(analyse) {
@@ -1987,28 +2002,62 @@ function renderNav() {
 }
 
 /* ---------- Start / Dashboard ---------- */
+// Leiser Abschnitts-Titel: gliedert die Startseite, damit die Karten nicht als
+// „ein Haufen“ wirken, sondern als sortierte Bereiche („wo bin ich gerade?“).
+function sect(titel) { return `<div class="sect"><span>${esc(titel)}</span></div>`; }
+
+/* Erster Start: EIN Bildschirm, EINE Aufgabe.
+   Solange die drei Fragen offen sind, zeigt der Start-Tab bewusst sonst nichts —
+   kein Dashboard voller Nullen, keine To-dos, keine Angebote. */
+function viewOnboarding() {
+  const schritt = Math.min(3, state.settings.onboarding || 1);
+  const punkte = [1, 2, 3].map(i => `<span class="pt${i <= schritt ? " on" : ""}"></span>`).join("");
+  let inhalt = "";
+  if (schritt === 1) {
+    const startKarten = ["maingau", "enbw-s", "kaufland-app", "aldi-app", "electroverse", "tesla-app"];
+    inhalt = `<h2>Welche Lade-Karten oder -Apps hast du schon?</h2>
+      <p class="small muted">Nichts davon? Einfach leer lassen — die App schlägt dir dann die passenden vor.</p>
+      <div class="pickliste">
+        ${startKarten.map(kid => { const t = state.tarife.find(x => x.id === kid); return t ? `<label class="pick"><input type="checkbox" data-obkarte="${t.id}" ${state.karten[t.id] ? "checked" : ""}><span>${esc(t.name)}</span></label>` : ""; }).join("")}
+      </div>
+      <div class="btnrow"><button class="btn primary" data-action="ob-weiter">Weiter →</button></div>`;
+  } else if (schritt === 2) {
+    inhalt = `<h2>Wie viel fährst du ungefähr pro Monat?</h2>
+      <p class="small muted">Daraus schätzt die App deine Lademenge. Später jederzeit änderbar.</p>
+      <div class="btnrow">${[500, 1000, 1500, 2500].map(km => `<button class="btn" data-action="ob-km" data-km="${km}">~${n0(km)} km</button>`).join("")}</div>
+      <div class="btnrow"><button class="btn ghost small" data-action="ob-weiter">Weiß ich nicht →</button></div>`;
+  } else {
+    inhalt = `<h2>Wo wohnst du?</h2>
+      <p class="small muted">Bleibt nur auf diesem Gerät — als Favorit im Routen-Planer und für „Säulen in der Nähe“.</p>
+      <input type="text" id="ob-adresse" placeholder="z. B. Musterstr. 1, München">
+      <div class="btnrow"><button class="btn primary" data-action="ob-fertig">Fertig ✓</button></div>`;
+  }
+  return `<div class="onb">
+    <div class="onbkopf">
+      <span class="lg">👋</span>
+      <h1>Willkommen</h1>
+      <p class="lead">Drei kurze Fragen — danach rechnet dir die App automatisch die günstigste Ladekarte aus.</p>
+      <div class="pts">${punkte}<span class="small muted">Schritt ${schritt} von 3</span></div>
+    </div>
+    <div class="card">${inhalt}</div>
+    <div class="onbfuss"><button class="btn ghost small" data-action="intro-weg">Überspringen — ich schau mich erst um</button></div>
+  </div>`;
+}
+
 function viewStart() {
+  if (!state.settings.introWeg) return viewOnboarding();
   const ana = monatsAnalyse();
   const acts = aktionen(ana);
+  const hatProfil = ana.kwhGesamt > 0;
   let html = "";
-
-  // ---------- Geführter Start: „Was willst du tun?“ (Orientierung zuerst) ----------
-  html += `<div class="card">
-    <h1 style="margin:0">⚡ Was willst du tun?</h1>
-    <p class="lead" style="margin:4px 0 0">Tipp auf dein Ziel — den Rest erklärt dir die App Schritt für Schritt.</p>
-    <div class="launch">
-      <button class="launchbtn" data-tab="reise"><span class="lg">🧭</span><b>Route planen</b><small>Ladestopps für deine Fahrt</small></button>
-      <button class="launchbtn" data-tab="laden"><span class="lg">🔌</span><b>Säule finden</b><small>Schnelllader in der Nähe</small></button>
-      <button class="launchbtn" data-tab="meins" data-mgrp="auto"><span class="lg">📍</span><b>Meine Orte</b><small>wo du lädst → beste Karte</small></button>
-      <button class="launchbtn" data-tab="meins" data-mgrp="karten"><span class="lg">💳</span><b>Karten &amp; Preise</b><small>Tarife, Angebote, Buchungszeit</small></button>
-    </div></div>`;
+  let jetzt = ""; // „Was ist gerade dran?“ — kommt ganz nach oben, sonst gar nicht
 
   // ---------- Kontext zuerst: Was ist JETZT wichtig? ----------
   // Läuft gerade eine Ladung? Timer-Status ganz oben, egal wo gestartet
   if (state.ladeTimer) {
     const minL = Math.floor((Date.now() - state.ladeTimer.start) / 60000);
     const restL = state.ladeTimer.grenze == null ? null : state.ladeTimer.grenze - minL;
-    html += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p><span class="pulsdot"></span>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
+    jetzt += `<div class="card alert ${restL != null && restL <= 10 ? "crit" : "good"}"><p><span class="pulsdot"></span>⏱ <b>Laden läuft — ${minL} min</b>${restL != null ? (restL > 0 ? ` · noch ${restL} min bis zur Blockiergebühr` : " · <b>Blockiergebühr läuft!</b>") : ""}</p>
       <div class="btnrow"><button class="btn small primary" data-tab="laden">Zum Timer</button></div></div>`;
   }
   // Heute unterwegs? Live-Ansicht mit dem nächsten Stopp
@@ -2016,7 +2065,7 @@ function viewStart() {
   if (heuteTrip) {
     const lIdx = Math.min(heuteTrip.liveStopp || 0, heuteTrip.stopps.length);
     const lSt = heuteTrip.stopps[lIdx];
-    html += `<div class="card alert info"><h3>🚗 Heute: ${esc(heuteTrip.ziel)} ${iBtn("live-notfall")}</h3>
+    jetzt += `<div class="card alert info"><h3>🚗 Heute: ${esc(heuteTrip.ziel)} ${iBtn("live-notfall")}</h3>
       ${iBox("live-notfall", "Wenn's an der Säule hakt: 1) Zweitkarte/App probieren · 2) Ad-hoc per QR/Kreditkarte · 3) Hotline auf der Säule anrufen · 4) unter 10 % Akku: nächsten Standort ansteuern, nicht warten. Säulen in der Nähe zeigt dir jederzeit der Fahrmodus.")}` +
       (lSt ? `<p><b>Nächster Stopp ${lIdx + 1}/${heuteTrip.stopps.length}:</b> ${esc(lSt.name)} — km ${n0(lSt.posKm)}, Ankunft ~${lSt.ankunftSoc} %, laden auf ${lSt.zielSoc} % (~${lSt.ladeMin} min)</p>
       <div class="btnrow">
@@ -2036,57 +2085,8 @@ function viewStart() {
     const tg = Math.ceil((new Date(nT.datum) - new Date()) / 864e5);
     const clN = tripCheckliste(nT, tripAnalyse(nT));
     const offen = clN.filter((x, i) => !state.checks[nT.id + "-" + i]).length;
-    html += `<div class="card alert info"><p>🧳 <b>${tg === 1 ? "Morgen" : "In " + tg + " Tagen"}: ${esc(nT.ziel)}</b>${offen ? ` — noch <b>${offen}</b> Punkt${offen === 1 ? "" : "e"} auf der Checkliste` : " — Checkliste komplett ✓"}</p>
+    jetzt += `<div class="card alert info"><p>🧳 <b>${tg === 1 ? "Morgen" : "In " + tg + " Tagen"}: ${esc(nT.ziel)}</b>${offen ? ` — noch <b>${offen}</b> Punkt${offen === 1 ? "" : "e"} auf der Checkliste` : " — Checkliste komplett ✓"}</p>
       <div class="btnrow"><button class="btn small primary" data-tab="reise">Zum Trip</button></div></div>`;
-  }
-
-  // Erster Start: 3 kurze Fragen statt Erklärtext — danach ist alles vorbefüllt
-  if (!state.settings.introWeg) {
-    const schritt = state.settings.onboarding || 1;
-    if (schritt === 1) {
-      const startKarten = ["maingau", "enbw-s", "kaufland-app", "aldi-app", "electroverse", "tesla-app"];
-      html += `<div class="card alert info"><h3>👋 Los geht's — Frage 1 von 3</h3>
-        <p><b>Welche Lade-Karten oder -Apps hast du schon?</b></p>
-        ${startKarten.map(kid => { const t = state.tarife.find(x => x.id === kid); return t ? `<label style="display:flex;gap:8px;align-items:center;padding:3px 0;cursor:pointer"><input type="checkbox" data-obkarte="${t.id}" ${state.karten[t.id] ? "checked" : ""}> <span class="small">${esc(t.name)}</span></label>` : ""; }).join("")}
-        <div class="btnrow"><button class="btn small primary" data-action="ob-weiter">Weiter →</button><button class="btn small ghost" data-action="intro-weg">Überspringen</button></div></div>`;
-    } else if (schritt === 2) {
-      html += `<div class="card alert info"><h3>Frage 2 von 3</h3>
-        <p><b>Wie viel fährst du ungefähr pro Monat?</b> <span class="muted small">Daraus schätzt die App deine Lademenge — später unter „Meins → Auto &amp; Orte“ jederzeit anpassbar.</span></p>
-        <div class="btnrow">${[500, 1000, 1500, 2500].map(km => `<button class="btn small" data-action="ob-km" data-km="${km}">~${n0(km)} km</button>`).join("")}<button class="btn small ghost" data-action="ob-weiter">Überspringen</button></div></div>`;
-    } else {
-      html += `<div class="card alert info"><h3>Frage 3 von 3</h3>
-        <p><b>Deine Heim-Adresse?</b> <span class="muted small">Bleibt nur auf diesem Gerät — als Favorit im Routen-Planer und für „Säulen in der Nähe“.</span></p>
-        <div class="frow" style="align-items:flex-end">
-          <div style="flex:3 1 200px"><input type="text" id="ob-adresse" placeholder="z. B. Musterstr. 1, München"></div>
-          <div style="flex:1 1 120px"><button class="btn small primary" data-action="ob-fertig" style="width:100%">Fertig ✓</button></div>
-        </div>
-        <div class="btnrow"><button class="btn small ghost" data-action="intro-weg">Überspringen</button></div></div>`;
-    }
-  }
-
-  // Als App installieren — ein Tipp statt Menü-Anleitung (nur wenn möglich & noch nicht installiert)
-  if (installPrompt && !(window.matchMedia && matchMedia("(display-mode: standalone)").matches)) {
-    html += tipp("install", `<p>📲 <b>Als App installieren</b> — eigenes Icon auf dem Startbildschirm, Vollbild, startet auch offline.</p>
-      <div class="btnrow"><button class="btn small primary" data-action="installieren">Jetzt installieren</button></div>`);
-  }
-
-  // Tarif-Update wurde beim Start automatisch übernommen
-  if (updateHinweis) {
-    html += `<div class="card alert good"><p>✓ <b>Tarife automatisch aktualisiert</b> — Preisstand ${datumDE(updateHinweis)}. Deine eigenen Änderungen blieben unangetastet.</p></div>`;
-  }
-  // Persönlicher Preis-Alarm: Änderungen bei DEINEN Karten/Abos
-  if (state.preisAlarm && state.preisAlarm.liste && state.preisAlarm.liste.length) {
-    const teurer = state.preisAlarm.liste.some(a => a.neu > a.alt);
-    html += `<div class="card alert ${teurer ? "" : "good"}"><h3>${teurer ? "⚠️ Preisänderung bei deinen Karten" : "🎉 Deine Karten wurden günstiger"}</h3>
-      <ul class="clean">${state.preisAlarm.liste.map(a => `<li><b>${esc(a.name)}</b>: ${a.alt.toLocaleString("de-DE")} → ${a.neu.toLocaleString("de-DE")} ${esc(a.feld)} ${a.neu > a.alt ? '<span class="pill crit">teurer</span>' : '<span class="pill good">günstiger</span>'}</li>`).join("")}</ul>
-      <p class="small">Alle Empfehlungen und To-dos sind bereits mit den neuen Preisen berechnet.</p>
-      <div class="btnrow"><button class="btn small" data-action="preisalarm-weg">Verstanden</button></div></div>`;
-  }
-  // Preis-Wunsch-Alarm erfüllt
-  if (state.wunschTreffer && state.wunschTreffer.liste && state.wunschTreffer.liste.length) {
-    html += `<div class="card alert good"><h3>🔔 Dein Preis-Wunsch ist erfüllt!</h3>
-      <ul class="clean">${state.wunschTreffer.liste.map(w => `<li><b>${esc(netzKurz(w.netz))} ${w.art.toUpperCase()}</b>: ${esc(w.name)} bietet <b>${ct(w.ist)}</b> (dein Wunsch: unter ${ct(w.wunsch)})</li>`).join("")}</ul>
-      <div class="btnrow"><button class="btn small" data-action="wunschtreffer-weg">Verstanden</button></div></div>`;
   }
   // Kälte-Check kurz vor einem Trip (Wetterdaten werden beim App-Start aufgefrischt)
   for (const trK of state.trips) {
@@ -2094,14 +2094,77 @@ function viewStart() {
     const tageK = Math.round((new Date(trK.datum) - new Date()) / 864e5);
     if (tageK < 0 || tageK > 2) continue;
     if (kaelteFaktor(trK) <= 1.05) continue;
-    html += `<div class="card alert"><p>🌡️ <b>${esc(trK.ziel)}</b> ${tageK === 0 ? "heute" : tageK === 1 ? "morgen" : "übermorgen"}: ${esc(kaelteText(trK))}.</p>
+    jetzt += `<div class="card alert"><p>🌡️ <b>${esc(trK.ziel)}</b> ${tageK === 0 ? "heute" : tageK === 1 ? "morgen" : "übermorgen"}: ${esc(kaelteText(trK))}.</p>
       <div class="btnrow"><button class="btn small primary" data-action="trip-kaelte-calc" data-id="${esc(trK.id)}">Stopps mit Kälte neu berechnen</button></div></div>`;
+  }
+  // „Jetzt“ steht ganz oben — aber nur, wenn wirklich etwas ansteht
+  if (jetzt) html += sect("Gerade wichtig") + jetzt;
+
+  // ---------- Anker der App: „Was willst du tun?“ (Orientierung vor Zahlen) ----------
+  html += `<div class="card launchcard">
+    <h1>Was willst du tun?</h1>
+    <p class="lead">Tipp auf dein Ziel — den Rest erklärt dir die App Schritt für Schritt.</p>
+    <div class="launch">
+      <button class="launchbtn" data-tab="reise"><span class="lg">🧭</span><b>Route planen</b><small>Ladestopps für deine Fahrt</small></button>
+      <button class="launchbtn" data-tab="laden"><span class="lg">🔌</span><b>Säule finden</b><small>Schnelllader in der Nähe</small></button>
+      <button class="launchbtn" data-tab="meins" data-mgrp="auto"><span class="lg">📍</span><b>Meine Orte</b><small>wo du lädst → beste Karte</small></button>
+      <button class="launchbtn" data-tab="meins" data-mgrp="karten"><span class="lg">💳</span><b>Karten &amp; Preise</b><small>Tarife, Angebote, Buchungszeit</small></button>
+    </div></div>`;
+
+  // Als App installieren — ein Tipp statt Menü-Anleitung (nur wenn möglich & noch nicht installiert)
+  if (installPrompt && !(window.matchMedia && matchMedia("(display-mode: standalone)").matches)) {
+    html += tipp("install", `<p>📲 <b>Als App installieren</b> — eigenes Icon auf dem Startbildschirm, Vollbild, startet auch offline.</p>
+      <div class="btnrow"><button class="btn small primary" data-action="installieren">Jetzt installieren</button></div>`);
+  }
+
+  /* ---------- Abschnitt „Dein Ladeprofil“ ----------
+     Ohne eingetragene Orte gibt es KEINE Null-Kacheln, sondern einen Weg mit
+     drei Schritten — sonst sieht der Neu-Nutzer nur 0 € / 0 kWh / – €. */
+  html += sect(hatProfil ? "Dein Ladeprofil" : "Dein erster Schritt");
+  if (hatProfil) {
+    html += `<div class="card">
+      <div class="bento">
+        <div class="tile gross"><div class="z num">${eur(ana.kosten.gesamt, 0)}</div><div class="l">Ladekosten pro Monat<br>davon ${eur(ana.kosten.grund, 2)} Abos</div></div>
+        <div class="tile"><div class="z num">${n0(ana.kwhGesamt)}<span class="unit"> kWh</span></div><div class="l">geplant (≈ ${n0(ana.kmGeschaetzt)} km)</div></div>
+        <div class="tile"><div class="z num">${(ana.kosten.gesamt / ana.kmGeschaetzt * 100).toLocaleString("de-DE", { maximumFractionDigits: 1 })}<span class="unit"> €/100 km</span></div><div class="l">Energiekosten-Schnitt</div></div>
+      </div></div>`;
+  } else {
+    html += `<div class="card"><h2>📍 Sag der App, wo du lädst</h2>
+      <p class="lead">Dann rechnet sie dir die günstigste Karte, die To-dos und den Break-even automatisch aus.</p>
+      <ol class="steps">
+        <li><b>Ladeorte eintragen</b><span>Zuhause, Arbeit, Supermarkt — plus wie viel kWh pro Monat.</span></li>
+        <li><b>App rechnet</b><span>Sie vergleicht alle Karten &amp; Abos an genau diesen Orten.</span></li>
+        <li><b>Du bekommst eine Antwort</b><span>„Nimm diese Karte, das spart X € im Monat.“</span></li>
+      </ol>
+      <div class="btnrow"><button class="btn primary" data-tab="meins" data-mgrp="auto">Ladeorte eintragen</button><button class="btn" data-tab="reise">Lieber eine Route planen</button></div></div>`;
+  }
+  /* ---------- „Neu für dich“ ----------
+     Meldungen, Angebote und Änderungen sammeln sich hier unten in EINEM Abschnitt.
+     Sie sind Information, kein Auftrag — deshalb stehen sie nicht mehr über den Zahlen. */
+  let neu = "";
+  // Tarif-Update wurde beim Start automatisch übernommen
+  if (updateHinweis) {
+    neu += `<div class="card alert good"><p>✓ <b>Tarife automatisch aktualisiert</b> — Preisstand ${datumDE(updateHinweis)}. Deine eigenen Änderungen blieben unangetastet.</p></div>`;
+  }
+  // Persönlicher Preis-Alarm: Änderungen bei DEINEN Karten/Abos
+  if (state.preisAlarm && state.preisAlarm.liste && state.preisAlarm.liste.length) {
+    const teurer = state.preisAlarm.liste.some(a => a.neu > a.alt);
+    neu += `<div class="card alert ${teurer ? "" : "good"}"><h3>${teurer ? "⚠️ Preisänderung bei deinen Karten" : "🎉 Deine Karten wurden günstiger"}</h3>
+      <ul class="clean">${state.preisAlarm.liste.map(a => `<li><b>${esc(a.name)}</b>: ${a.alt.toLocaleString("de-DE")} → ${a.neu.toLocaleString("de-DE")} ${esc(a.feld)} ${a.neu > a.alt ? '<span class="pill crit">teurer</span>' : '<span class="pill good">günstiger</span>'}</li>`).join("")}</ul>
+      <p class="small">Alle Empfehlungen und To-dos sind bereits mit den neuen Preisen berechnet.</p>
+      <div class="btnrow"><button class="btn small" data-action="preisalarm-weg">Verstanden</button></div></div>`;
+  }
+  // Preis-Wunsch-Alarm erfüllt
+  if (state.wunschTreffer && state.wunschTreffer.liste && state.wunschTreffer.liste.length) {
+    neu += `<div class="card alert good"><h3>🔔 Dein Preis-Wunsch ist erfüllt!</h3>
+      <ul class="clean">${state.wunschTreffer.liste.map(w => `<li><b>${esc(netzKurz(w.netz))} ${w.art.toUpperCase()}</b>: ${esc(w.name)} bietet <b>${ct(w.ist)}</b> (dein Wunsch: unter ${ct(w.wunsch)})</li>`).join("")}</ul>
+      <div class="btnrow"><button class="btn small" data-action="wunschtreffer-weg">Verstanden</button></div></div>`;
   }
   // Monats-Rückblick (einmal pro Monat, wegklickbar)
   const rep = monatsReport();
   if (rep) {
     const mName = new Date(rep.monat + "-01T12:00:00").toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-    html += tipp("report-" + rep.monat, `<h3>📅 Dein Lade-Monat ${esc(mName)}</h3>
+    neu += tipp("report-" + rep.monat, `<h3>📅 Dein Lade-Monat ${esc(mName)}</h3>
       <div class="hero">
         <div class="stat"><div class="v num">${eur(rep.eur, 0)}</div><div class="l">${n0(rep.kwh)} kWh · ${rep.anz} Ladungen</div></div>
         <div class="stat"><div class="v num">${rep.schnitt != null ? rep.schnitt.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "–"}<span class="unit"> €/kWh</span></div><div class="l">Ø-Preis</div></div>
@@ -2109,51 +2172,38 @@ function viewStart() {
         ${rep.trend != null ? `<div class="stat"><div class="v num">${rep.trend <= 0 ? "↘" : "↗"} ${eur(Math.abs(rep.trend), 0)}</div><div class="l">vs. Vormonat</div></div>` : ""}
       </div>`);
   }
-  // Belegte Änderungen des letzten Updates (mit Quellen)
-  if (state.aenderungsLog && state.aenderungsLog.liste && state.aenderungsLog.liste.length) {
-    html += `<div class="card flat"><details class="plain"><summary>📝 Was hat sich zuletzt geändert? (Stand ${datumDE(state.aenderungsLog.stand)})</summary>
-      <ul class="dots">${state.aenderungsLog.liste.map(a => `<li><b>${esc(a.id || "")}</b>: ${esc(a.was || "")} ${a.alt != null ? esc(String(a.alt)) + " → " + esc(String(a.neu)) : ""} ${a.quelle ? `<a href="${esc(a.quelle)}" target="_blank" rel="noopener">Quelle</a>` : ""}</li>`).join("")}</ul>
-    </details></div>`;
-  }
-  // Aktions-Radar: befristete Angebote (aus dem wöchentlichen Update)
-  const aktiveAktionen = aktuelleAktionen();
-  if (aktiveAktionen.length) {
-    html += `<div class="card alert info"><h3>🏷️ Angebote der Anbieter</h3><ul class="clean">` +
-      aktiveAktionen.map(a => {
-        const tm = aktionTiming(a);
+  // Aktions-Radar: befristete Angebote (aus dem wöchentlichen Update) — je Aktion EINE Zeile
+  const angebote = aktionenGebuendelt();
+  if (angebote.length) {
+    neu += `<div class="card alert info"><h3>🏷️ Angebote der Anbieter</h3><ul class="clean">` +
+      angebote.map(g => {
+        const tm = aktionTiming(g.a);
         const pill = tm.status === "kommt"
           ? `<span class="pill warn">startet in ${tm.tage} Tag${tm.tage === 1 ? "" : "en"} — noch warten</span>`
           : `<span class="pill good">läuft noch ${tm.tage} Tag${tm.tage === 1 ? "" : "e"}</span>`;
-        return `<li><b>${esc(a.anbieter || "")}</b>: ${esc(a.text || "")} ${pill}</li>`;
+        const auch = g.tarife.length > 1 ? `<br><small class="muted">gilt für ${g.tarife.map(t => esc(kurzName(t))).join(", ")}</small>` : "";
+        return `<li><b>${esc(g.a.anbieter || "")}</b>: ${esc(g.a.text || "")} ${pill}${auch}</li>`;
       }).join("") + `</ul>
-      <div class="btnrow"><button class="btn small primary" data-tab="meins">Angebote &amp; Buchungszeit</button></div></div>`;
+      <div class="btnrow"><button class="btn small primary" data-tab="meins" data-mgrp="karten">Angebote &amp; Buchungszeit</button></div></div>`;
   }
-
+  // Belegte Änderungen des letzten Updates (mit Quellen)
+  if (state.aenderungsLog && state.aenderungsLog.liste && state.aenderungsLog.liste.length) {
+    neu += `<div class="card flat"><details class="plain"><summary>📝 Was hat sich zuletzt geändert? (Stand ${datumDE(state.aenderungsLog.stand)})</summary>
+      <ul class="dots">${state.aenderungsLog.liste.map(a => `<li><b>${esc(a.id || "")}</b>: ${esc(a.was || "")} ${a.alt != null ? esc(String(a.alt)) + " → " + esc(String(a.neu)) : ""} ${a.quelle ? `<a href="${esc(a.quelle)}" target="_blank" rel="noopener">Quelle</a>` : ""}</li>`).join("")}</ul>
+    </details></div>`;
+  }
   // Preis-Stand-Warnung
   const tage = Math.floor((new Date() - new Date(state.settings.preiseGeprueft)) / 864e5);
   if (tage > 60) {
-    html += `<div class="card alert"><h3>⚠️ Preise veraltet (${tage} Tage)</h3>
+    neu += `<div class="card alert"><h3>⚠️ Preise veraltet (${tage} Tage)</h3>
       <p>Ladepreise ändern sich oft. Bitte unter <b>Meins → Karten &amp; Preise</b> kurz gegen die Anbieter-Apps prüfen und auf „Preise geprüft“ tippen.</p></div>`;
-  }
-
-  // Hero-Zahlen als Bento-Raster: Größe = Wichtigkeit
-  html += `<div class="card"><div class="eyebrow">Dein Ladeprofil pro Monat</div>
-    <div class="bento">
-      <div class="tile gross"><div class="z num">${eur(ana.kosten.gesamt, 0)}</div><div class="l">Ladekosten pro Monat<br>davon ${eur(ana.kosten.grund, 2)} Abos</div></div>
-      <div class="tile"><div class="z num">${n0(ana.kwhGesamt)}<span class="unit"> kWh</span></div><div class="l">geplant (≈ ${n0(ana.kmGeschaetzt)} km)</div></div>
-      <div class="tile"><div class="z num">${ana.kwhGesamt ? (ana.kosten.gesamt / ana.kmGeschaetzt * 100).toLocaleString("de-DE", { maximumFractionDigits: 1 }) : "–"}<span class="unit"> €/100 km</span></div><div class="l">Energiekosten-Schnitt</div></div>
-    </div></div>`;
-
-  if (!ana.kwhGesamt) {
-    html += `<div class="card alert info"><h3>📍 Erster Schritt: deine Ladeorte</h3>
-      <p>Trage unter <b>Meins → Auto &amp; Orte</b> ein, wo und wie viel (kWh/Monat) du laden wirst — erst dann kann die App Karten-Empfehlungen, To-dos und Break-even für dich rechnen. Für Reisen: direkt zu <b>Reise</b>.</p>
-      <div class="btnrow"><button class="btn small primary" data-tab="meins" data-mgrp="auto">Zu den Orten</button><button class="btn small" data-tab="reise">Route planen</button></div></div>`;
   }
 
   // Statistik aus dem Lade-Logbuch (echte Zahlen) — auf Abruf
   const stat = logbuchStatistik();
+  let echt = "";
   if (stat) {
-    html += `<div class="card flat"><details class="plain"><summary>📊 Deine echten Zahlen (${stat.anz} Ladungen · ${eur(stat.eurM, 0)} diesen Monat)</summary>
+    echt = `<div class="card flat"><details class="plain"><summary>📊 Deine echten Zahlen (${stat.anz} Ladungen · ${eur(stat.eurM, 0)} diesen Monat)</summary>
       <div class="hero" style="margin-top:10px">
         <div class="stat"><div class="v num">${eur(stat.eurM, 0)}</div><div class="l">diesen Monat (${n0(stat.kwhM)} kWh)</div></div>
         <div class="stat"><div class="v num">${stat.schnittG != null ? stat.schnittG.toLocaleString("de-DE", { maximumFractionDigits: 2 }) : "–"}<span class="unit"> €/kWh</span></div><div class="l">dein Ø-Preis gesamt</div></div>
@@ -2167,7 +2217,7 @@ function viewStart() {
     </details></div>`;
   }
 
-  // Aktionen
+  // Was folgt aus den Zahlen? — To-dos stehen direkt unter dem Ladeprofil
   if (!state.settings.einfach && acts.length) {
     html += `<div class="card"><h2>📋 Deine To-dos (automatisch berechnet)</h2><ul class="clean">`;
     for (const a of acts) {
@@ -2192,7 +2242,9 @@ function viewStart() {
       }
     }
     html += `</ul></div>`;
-  } else if (!state.settings.einfach) {
+  } else if (!state.settings.einfach && hatProfil) {
+    // „Nichts zu tun“ nur melden, wenn es auch etwas zu prüfen GAB — sonst
+    // widerspricht sich der Start („trag erst deine Orte ein“ + „alles passt“).
     html += `<div class="card alert good"><p>✅ <b>Setup passt</b> — Karten und Abos entsprechen deinem Ladeprofil, nichts zu tun.</p></div>`;
   }
 
@@ -2206,7 +2258,12 @@ function viewStart() {
     html += `<tr class="best"><td colspan="3">Summe (+ ${eur(ana.kosten.grund)} Abos)</td><td class="num">${eur(ana.kosten.gesamt)}</td></tr></table></div>
       <p class="small muted">⚠ = Preis variiert je Säule/Uhrzeit.</p></details></div>`;
   }
+  html += echt;
 
+  // Meldungen & Angebote: ein eigener, ruhiger Abschnitt unter den eigenen Zahlen
+  if (neu) html += sect("Neu für dich") + neu;
+
+  html += sect("Einstellungen & Daten");
   html += `<div class="card flat"><details class="plain"><summary>⚙️ Daten, Updates &amp; Sicherung <span class="muted">(Preisstand ${datumDE(state.settings.preiseGeprueft)} — aktualisiert sich montags von selbst)</span></summary>
     <div class="btnrow">
       <button class="btn small primary" data-action="update-check">🔄 Nach neuen Daten suchen</button>
@@ -2338,12 +2395,13 @@ function viewTarife() {
   const c = breakEvenChart(state.chartKontext);
   let html = `<h1>Tarife &amp; Break-even</h1>`;
 
-  // 🏷 Aktuelle Angebote & beste Buchungszeit
-  const aktionen2 = aktuelleAktionen();
+  // 🏷 Aktuelle Angebote & beste Buchungszeit (je Aktion EINE Karte, nicht je Tarif)
+  const aktionen2 = aktionenGebuendelt();
   if (aktionen2.length) {
     html += `<div class="card"><h2>🏷 Aktuelle Angebote &amp; beste Buchungszeit ${iBtn("ang-hilfe")}</h2>
       ${iBox("ang-hilfe", "Hier bündelt die App die vom Montags-Update gefundenen, zeitlich begrenzten Anbieter-Aktionen. Grün = läuft schon, Gelb = angekündigt/startet bald. Bei angekündigten Aktionen lohnt es sich oft, mit dem Buchen ein paar Tage zu warten — genau das rechnet dir die App aus.")}`;
-    for (const a of aktionen2) {
+    for (const g of aktionen2) {
+      const a = g.a;
       const tm = aktionTiming(a);
       const t = a.tarifId ? state.tarife.find(x => x.id === a.tarifId) : null;
       const habIch = t ? besitzt(t) : false;
@@ -2359,6 +2417,7 @@ function viewTarife() {
       html += `<div class="card flat" style="border-left:4px solid ${farbe};margin-top:8px">
         <p><b>${esc(a.anbieter || (t ? t.name : "Anbieter"))}</b>${t ? ` <span class="muted small">(${esc(t.name)})</span>` : ""}${habIch ? ' <span class="pill acc">hast du</span>' : ""}</p>
         <p class="small">${esc(a.text || "")}</p>
+        ${g.tarife.length > 1 ? `<p class="small muted">Gilt für ${g.tarife.map(x => esc(kurzName(x))).join(", ")}.</p>` : ""}
         <p class="small">${tipp}</p>
         ${t && t.bestellLink ? `<div class="btnrow"><a class="btn small ${tm.status === "laeuft" && !habIch ? "primary" : "ghost"}" href="${esc(t.bestellLink)}" target="_blank" rel="noopener">🔗 Zum Anbieter</a></div>` : ""}
         ${a.quelle && !(t && t.bestellLink) ? `<p class="small"><a href="${esc(a.quelle)}" target="_blank" rel="noopener">Quelle</a></p>` : ""}
@@ -2366,6 +2425,11 @@ function viewTarife() {
     }
     html += `<p class="small muted" style="margin-top:8px">Diese Liste aktualisiert sich jeden Montag automatisch. Fehlt ein Angebot, das du kennst? Über „🔬 Neu-Recherche anstoßen" (Start → Daten &amp; Updates) sofort neu suchen lassen.</p></div>`;
   }
+
+  /* Der Analyse-Teil (Break-even, Abo-Fahrplan, Preis-Verlauf, Wunsch-Alarm) wird
+     hier gebaut, aber erst UNTER der Kartenliste ausgegeben. Reihenfolge der Fragen:
+     „Welche Karten habe ich?“ kommt vor „Ab wann lohnt sich ein Abo?“. */
+  const vorAnalyse = html; html = "";
 
   html += `<div class="card"><h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
     ${iBox("be-hilfe", "Jede Linie = ein Tarif (Grundgebühr + kWh-Preis). Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo. Mit dem Finger über das Diagramm fahren zeigt Preise je Lademenge.")}
@@ -2450,16 +2514,19 @@ function viewTarife() {
       <div><button class="btn small" data-action="wunsch-neu" style="width:100%">+ Alarm</button></div>
     </div>
   </details></div>`;
+  const analyseHtml = html; html = vorAnalyse;
 
+  /* Karten-Liste: DEINE Karten zuerst, alle anderen eingeklappt je Gruppe.
+     Sonst sucht man seine zwei eigenen Karten zwischen vierzig fremden. */
   const gruppen = [["frei", "🆓 Ohne Grundgebühr — kosten nichts, solange du nicht lädst"], ["abo", "📅 Abos — nur in Monaten buchen, in denen sie sich rechnen"], ["adhoc", "💳 Ohne alles"]];
-  for (const [kat, titel] of gruppen) {
-    html += `<h2 style="margin-top:20px">${titel}</h2><div class="grid cols2">`;
-    for (const t of state.tarife.filter(t => t.kategorie === kat)) {
+  const tarifKarte = (t) => {
+    const kat = t.kategorie;
+    {
       const hat = kat === "abo" ? !!state.abos[t.id] : !!state.karten[t.id];
       const pReihe = Object.entries(t.preise || {}).map(([nid, p]) =>
         `<span class="pill">${esc(netzKurz(nid))}: ${p.ac != null ? "AC " + p.ac.toLocaleString("de-DE") : ""}${p.ac != null && p.dc != null ? " / " : ""}${p.dc != null ? "DC " + p.dc.toLocaleString("de-DE") : ""}${p.unsicher ? " ⚠" : ""}</span>`).join(" ");
       const roam = t.roaming && (t.roaming.ac != null || t.roaming.dc != null) ? `<span class="pill">Roaming: ${t.roaming.ac != null ? "AC " + t.roaming.ac.toLocaleString("de-DE") : ""}${t.roaming.ac != null && t.roaming.dc != null ? " / " : ""}${t.roaming.dc != null ? "DC " + t.roaming.dc.toLocaleString("de-DE") : ""}${t.roamingUnsicher ? " ⚠" : ""}</span>` : "";
-      html += `<div class="card tarif" style="border-left:4px solid ${tarifNetz(t) ? netzFarbe(tarifNetz(t)) : "var(--hairline)"}">
+      return `<div class="card tarif" style="border-left:4px solid ${tarifNetz(t) ? netzFarbe(tarifNetz(t)) : "var(--hairline)"}">
         <div class="head"><h3 style="margin:0">${esc(t.name)}</h3>
         <span class="preis-haupt num">${t.grund ? eur(t.grund) + "/Mon." : "0 €"}</span></div>
         <div class="meta">${t.basisEmpfehlung ? '<span class="pill good">Basis-Setup</span>' : ""}${hat ? `<span class="pill acc">${kat === "abo" ? "Abo aktiv" : "Hab ich"}</span>` : ""}<span class="pill">${esc(t.medium)}</span><span class="pill">${esc(t.laender)}</span>${t.preisVariabel ? '<span class="pill warn">Preis je Säule</span>' : ""}</div>
@@ -2495,8 +2562,19 @@ function viewTarife() {
         </div>
       </div>`;
     }
-    html += `</div>`;
+  };
+  const meineKarten = state.tarife.filter(t => t.id !== "adhoc" && besitzt(t));
+  if (meineKarten.length) {
+    html += `<h2 style="margin-top:22px">✅ Deine Karten &amp; Abos <span class="muted">(${meineKarten.length})</span></h2>
+      <div class="grid cols2">${meineKarten.map(tarifKarte).join("")}</div>`;
   }
+  for (const [kat, titel] of gruppen) {
+    const rest = state.tarife.filter(t => t.kategorie === kat && !meineKarten.includes(t));
+    if (!rest.length) continue;
+    html += `<details class="grp"${meineKarten.length ? "" : " open"}><summary>${titel} <span class="muted">(${rest.length})</span></summary>
+      <div class="grpbody"><div class="grid cols2">${rest.map(tarifKarte).join("")}</div></div></details>`;
+  }
+  html += analyseHtml;
   html += `<div class="btnrow" style="margin-top:14px"><button class="btn small" data-action="tarife-json">⬇ Tarifstand als tarife.json exportieren (für deinen Server)</button></div>
   <p class="footer-note">Preisstand: ${datumDE(state.settings.preiseGeprueft)} · Quellen: Anbieter-Websites &amp; Fachpresse (electrive, ecomento). Alle Angaben ohne Gewähr — Preis an der Säule/App gilt.</p>`;
   return html;
@@ -2760,7 +2838,7 @@ function viewFahren() {
   let html = `<div class="drive">
   <h1>🚗 Fahrmodus</h1>
   <p class="small"><b>Nur im Stand oder vom Beifahrer bedienen.</b></p>
-
+  ${sect("Komme ich noch hin?")}
   <div class="card"><h2>🔋 Wie weit komme ich noch?</h2>
     <div class="frow">
       <div><label class="f">Ich gebe an</label><select data-fahrt="modus"><option value="soc" ${fa.modus === "soc" ? "selected" : ""}>Akku-%</option><option value="restkm" ${fa.modus === "restkm" ? "selected" : ""}>Rest-km laut Anzeige</option></select></div>
@@ -2794,6 +2872,7 @@ function viewFahren() {
     </details>` : ""}
   </div>
 
+  ${sect("Säule finden")}
   <div class="card"><h2>📍 Nächste Ladesäulen finden</h2>
     ${!(state.settings.ocmKey || "").trim() ? `<div class="card flat alert info"><p class="small"><b>Einmalig einrichten (2 Minuten, kostenlos):</b> Auf <a href="https://openchargemap.org" target="_blank" rel="noopener">openchargemap.org</a> registrieren → Profil → „my apps“ → „Register an Application“ → den API-Key hier eintragen. Damit bekommt die App weltweite Live-Säulendaten (Stationen kommen und gehen — die Quelle ist immer aktuell).</p>
     <label class="f">OpenChargeMap API-Key</label><input type="text" data-sfeldtext="ocmKey" value="${esc(state.settings.ocmKey)}" placeholder="z. B. 123abc..."></div>` : ""}
@@ -2818,6 +2897,7 @@ function viewFahren() {
 
   ${state.favoriten.length ? `<div class="card"><h2>⭐ Gemerkte Säulen</h2>${state.favoriten.map(st => stationCard(st, null, fr)).join("")}</div>` : ""}
 
+  ${sect("Ich stehe an der Säule")}
   <div class="card"><h2>Ich stehe an:</h2>
     <div class="netzgrid">${NETZE.filter(n => n.id !== "schuko" && n.id !== "ac-fremd").map(n => `<button data-drive="${n.id}" class="${n.id === netz ? "on" : ""}">${esc(n.kurz)}</button>`).join("")}</div>
   </div>`;
