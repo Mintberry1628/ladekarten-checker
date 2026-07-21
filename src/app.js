@@ -84,6 +84,7 @@ function defaultState() {
     adressen: [],                        // gespeicherte Adressen (Heim, Arbeit, Urlaub …)
     favoriten: [],                       // gemerkte Ladesäulen
     letzteSuche: null,                   // letztes Säulen-Suchergebnis (offline nutzbar)
+    umfeldCache: {},                     // „Was gibt's hier?“ je Standort (110-m-Raster, 90 Tage)
     logbuch: [],                         // erfasste Ladungen -> Statistik + Kalibrierung
     kalib: { ladeFaktor: 1, verbrauchFaktor: 1 },  // gelernt aus dem Logbuch
     aktionen: (typeof AKTIONEN_DEFAULT !== "undefined" ? JSON.parse(JSON.stringify(AKTIONEN_DEFAULT)) : []), // Anbieter-Aktionen (montags aktualisiert)
@@ -477,64 +478,170 @@ function stosszeitText(trip) {
   return "";
 }
 
-/* ---------- Stopp-Umfeld: Was gibt's an der Säule? (OpenStreetMap/Overpass) ----------
-   Der öffentliche Overpass-Server ist oft überlastet — deshalb werden bis zu
-   DREI Server nacheinander probiert; Fehler sind nur vorübergehend (nicht gespeichert). */
-let umfeldLauf = null;
-let umfeldFehler = null;
-let umfeldServerIdx = 0;
+/* ---------- Umfeld: Was gibt's an der Säule? (OpenStreetMap/Overpass) ----------
+   Komplett neu aufgebaut, weil die alte Fassung praktisch nie etwas anzeigte.
+   Drei Ursachen, alle behoben:
+   1) Overpass drosselt hart pro IP (HTTP 429) und schickt unter Last eine
+      HTML-Fehlerseite mit HTTP 504 — in der die Daten aber oft trotzdem stehen.
+      Die alte Prüfung „Antwort muss mit { beginnen“ hat genau die weggeworfen.
+      Jetzt: ab dem ersten { parsen, egal was davor steht.
+   2) Jede Säule fragte sofort los, drei Server à 16 s hintereinander -> „sucht …“
+      bis zu 48 s und am Ende nichts. Jetzt: EINE Warteschlange, nie zwei Abfragen
+      gleichzeitig, 1,2 s Abstand, bei 429/504 Wiederholung mit wachsender Pause.
+   3) Nichts wurde wiederverwendet. Jetzt: Ergebnis-Cache je Standort
+      (110-m-Raster, 90 Tage gültig) — überdauert Trips, Säulen und Sitzungen,
+      und funktioniert danach offline. */
+/* Reihenfolge nach gemessener Antwortzeit: overpass-api.de lieferte im Test 2,6 s,
+   kumi.systems hing 102 s und antwortete dann mit 504 ohne Daten. Deshalb werden
+   die Server auch nicht mehr stur nacheinander abgeklappert (das war der Grund für
+   „sucht …“ bis zu einer Minute), sondern gestaffelt angefragt — siehe umfeldRennen. */
 const OVERPASS_SERVER = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
 ];
-async function stoppUmfeld(st, still) {
-  umfeldLauf = st.id; umfeldFehler = null; render();
-  // WICHTIG: nwr = node/way/relation. Restaurants, Supermärkte & WCs an Raststätten
-  // sind in OpenStreetMap meist GEBÄUDE-Flächen (way), keine Punkte — die reine
-  // node-Suche fand dort nie etwas. 700 m Umkreis (Raststätten liegen etwas abseits).
-  const um = (f) => `nwr(around:700,${st.lat},${st.lng})${f};`;
-  const q = `[out:json][timeout:20];(${um('[amenity~"^(restaurant|fast_food|cafe)$"]')}${um("[amenity=toilets]")}${um("[shop=supermarket]")}${um("[leisure=playground]")});out center 40;`;
-  let js = null, grund = "";
-  // Startserver je Aufruf durchrotieren, damit die Hintergrund-Anreicherung nicht
-  // immer denselben Server trifft (Rate-Limit) — verteilt die Last auf alle drei.
-  const start = umfeldServerIdx++;
-  for (let k = 0; k < OVERPASS_SERVER.length; k++) {
-    const server = OVERPASS_SERVER[(start + k) % OVERPASS_SERVER.length];
-    try {
-      // hartes Zeitlimit je Server: hängt einer, geht es zum nächsten weiter
-      const r = await fetchMitTimeout(server + "?data=" + encodeURIComponent(q), 16000);
-      if (!r.ok) { grund = "HTTP " + r.status; continue; }
-      const txt = await r.text();
-      // Überlastete Server antworten mit XML/HTML statt JSON — sauber überspringen
-      if (!txt.trim().startsWith("{")) { grund = "überlastet"; continue; }
-      js = JSON.parse(txt);
-      break;
-    } catch (e) { grund = e.name === "AbortError" ? "Zeitüberschreitung" : e.message; }
-  }
-  if (js) {
-    const z = { essen: [], wc: 0, markt: [], spiel: 0 };
-    for (const el of js.elements || []) {
-      const t = el.tags || {};
-      if (t.amenity === "toilets") z.wc++;
-      else if (t.amenity) z.essen.push(t.name || (t.amenity === "cafe" ? "Café" : "Imbiss"));
-      if (t.shop === "supermarket") z.markt.push(t.name || "Supermarkt");
-      if (t.leisure === "playground") z.spiel++;
-    }
-    st.umfeld = { essen: [...new Set(z.essen)].slice(0, 4), wc: z.wc, markt: [...new Set(z.markt)].slice(0, 2), spiel: z.spiel, stand: heute() };
-    save();
-  } else if (!still) {
-    // NICHT speichern — nur vorübergehende Meldung, Knopf bleibt nutzbar
-    // (im Hintergrund-Modus `still` bleibt es stumm, damit die Auto-Anreicherung nicht stört)
-    umfeldFehler = {
-      id: st.id,
-      text: "Alle Kartendienste gerade überlastet (" + grund + ") — in 1–2 Minuten nochmal tippen." +
-        (location.hostname.includes("claude") ? " Hinweis: Im claude.ai-Link sind externe Abfragen generell gesperrt — nutze die App vom Pi/PC." : ""),
-    };
-  }
-  umfeldLauf = null;
-  render();
+const UMFELD_TAGE = 90;          // Cafés/WCs ändern sich selten
+const UMFELD_RADIUS = 700;       // Raststätten liegen etwas abseits der Säule
+let umfeldWarte = [];            // Warteschlange: [{ k, lat, lng, fertig }]
+let umfeldAktiv = false;         // läuft die Pumpe gerade?
+let umfeldZuletzt = 0;           // Zeitpunkt der letzten Abfrage (Mindestabstand)
+let umfeldLauf = null;           // Standort-Schlüssel, der gerade lädt ("⏳ sucht …")
+let umfeldFehler = null;         // { k, text } — nur vorübergehend, nie gespeichert
+const umfeldGescheitert = new Set();  // Standorte, die in dieser Sitzung nicht klappten
+
+const umfeldKey = (lat, lng) => (+lat).toFixed(3) + "," + (+lng).toFixed(3);
+function umfeldAusCache(lat, lng) {
+  if (lat == null || lng == null) return null;
+  const c = (state.umfeldCache || {})[umfeldKey(lat, lng)];
+  if (!c || !c.stand) return null;
+  if ((Date.now() - new Date(c.stand + "T12:00:00")) / 864e5 > UMFELD_TAGE) return null;
+  return c;
 }
+// Holt das Umfeld (aus dem Cache sofort, sonst über die Warteschlange)
+function umfeldHolen(lat, lng) {
+  const treffer = umfeldAusCache(lat, lng);
+  if (treffer) return Promise.resolve(treffer);
+  const k = umfeldKey(lat, lng);
+  const schon = umfeldWarte.find(a => a.k === k);
+  if (schon) return schon.p;
+  let fertig;
+  const p = new Promise(r => { fertig = r; });
+  umfeldWarte.push({ k, lat: +lat, lng: +lng, p, fertig });
+  umfeldPumpe();
+  return p;
+}
+function umfeldOffen() { return umfeldWarte.length; }
+async function umfeldPumpe() {
+  if (umfeldAktiv) return;
+  umfeldAktiv = true;
+  while (umfeldWarte.length) {
+    const a = umfeldWarte[0];
+    // 2 s Mindestabstand: overpass-api.de gibt jeder IP nur zwei Abfrage-Slots.
+    // Schnellfeuer quittiert der Server mit 429/504 — genau daran ist die alte
+    // Fassung erstickt. Einzelabfrage kostet real 1–4 s, das reicht völlig.
+    const pause = 2000 - (Date.now() - umfeldZuletzt);
+    if (pause > 0) await sleep(pause);
+    umfeldLauf = a.k; umfeldFehler = null; render();
+    const erg = await umfeldAbfrage(a.lat, a.lng);
+    umfeldZuletzt = Date.now();
+    umfeldWarte.shift();
+    if (erg) {
+      if (!state.umfeldCache) state.umfeldCache = {};
+      // Cache klein halten: die ältesten 40 fliegen raus, wenn es zu viele werden
+      const keys = Object.keys(state.umfeldCache);
+      if (keys.length > 300) keys.slice(0, 40).forEach(x => delete state.umfeldCache[x]);
+      state.umfeldCache[a.k] = erg;
+      save();
+    } else {
+      // Gescheiterte Standorte in dieser Sitzung nicht endlos neu versuchen
+      // (die Hintergrund-Anreicherung würde sonst gegen eine Wand laufen)
+      umfeldGescheitert.add(a.k);
+      umfeldFehler = { k: a.k, text: "Der OpenStreetMap-Dienst ist gerade überlastet und hat nach zwei Anläufen nicht geantwortet — tippe in ein paar Minuten nochmal auf „Was gibt's hier?“." + (location.hostname.includes("claude") ? " Im claude.ai-Link sind externe Abfragen generell gesperrt — nutze die App vom Pi/PC." : "") };
+    }
+    umfeldLauf = null;
+    a.fertig(erg);
+    render();
+  }
+  umfeldAktiv = false;
+}
+async function umfeldAbfrage(lat, lng) {
+  // nw = Punkte UND Flächen: Restaurants, Märkte und WCs sind in OSM meist
+  // Gebäude-Flächen (way), eine reine Punkt-Suche fände dort nie etwas.
+  const um = (f) => `nw${f}(around:${UMFELD_RADIUS},${lat},${lng});`;
+  const q = `[out:json][timeout:25];(${um('["amenity"~"^(restaurant|fast_food|cafe|toilets)$"]')}${um('["shop"~"^(supermarket|convenience|bakery)$"]')}${um('["leisure"="playground"]')});out center tags 80;`;
+  const erg = await umfeldRennen(q, 14000);
+  if (erg) return erg;
+  await sleep(4000);                         // gedrosselt? kurz Luft holen statt nachlegen
+  return await umfeldRennen(q, 14000);       // ein zweiter Anlauf, dann ehrlich aufgeben
+}
+/* Gestaffeltes Wettrennen statt starrer Server-Reihenfolge. Gemessen:
+   overpass-api.de antwortet meist in 1–4 s, wirft aber gelegentlich einen
+   sekundenkurzen Dispatcher-Fehler („runtime error: open64“, HTTP 504);
+   die Ausweich-Server hängen dagegen auch mal 100 s. Deshalb: der schnelle
+   Server wird nach 7,5 s einfach nochmal gefragt, statt auf die lahmen zu warten.
+   Die erste brauchbare Antwort gewinnt, alle anderen Anfragen werden abgebrochen. */
+const UMFELD_PLAN = [
+  { i: 0, ms: 0 },        // overpass-api.de sofort
+  { i: 1, ms: 2500 },     // private.coffee als Zweiter
+  { i: 2, ms: 5000 },     // kumi als Dritter
+  { i: 0, ms: 7500 },     // zweiter Anlauf beim schnellen Server
+  { i: 1, ms: 10000 },
+];
+function umfeldRennen(q, gesamtMs) {
+  return new Promise((fertig) => {
+    const abbrecher = [];
+    let offen = UMFELD_PLAN.length, entschieden = false;
+    const ende = (wert) => {
+      if (entschieden) return;
+      entschieden = true;
+      clearTimeout(uhr);
+      abbrecher.forEach(c => { try { c.abort(); } catch (e) { /* egal */ } });
+      fertig(wert);
+    };
+    const uhr = setTimeout(() => ende(null), gesamtMs || 15000);
+    UMFELD_PLAN.forEach((plan) => {
+      const server = OVERPASS_SERVER[plan.i];
+      setTimeout(async () => {
+        if (entschieden) return;
+        const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+        if (ctrl) abbrecher.push(ctrl);
+        try {
+          const r = await fetch(server, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "data=" + encodeURIComponent(q),
+            signal: ctrl ? ctrl.signal : undefined,
+          });
+          const txt = await r.text();
+          // Tolerant: bei Überlast steht das JSON hinter einer HTML-Fehlerseite
+          const j = txt.indexOf("{");
+          if (j >= 0) {
+            const js = JSON.parse(txt.slice(j));
+            if (js && Array.isArray(js.elements)) { ende(umfeldAuswerten(js)); return; }
+          }
+        } catch (e) { /* abgebrochen, überlastet oder kaputtes JSON */ }
+        if (--offen <= 0) ende(null);
+      }, plan.ms);
+    });
+  });
+}
+function umfeldAuswerten(js) {
+  const z = { essen: [], wc: 0, markt: [], spiel: 0 };
+  const namen = { cafe: "Café", fast_food: "Imbiss", restaurant: "Restaurant" };
+  for (const el of js.elements || []) {
+    const t = el.tags || {};
+    if (t.amenity === "toilets") z.wc++;
+    else if (t.amenity) z.essen.push(t.name || namen[t.amenity] || "Essen");
+    if (t.shop) z.markt.push(t.name || (t.shop === "bakery" ? "Bäckerei" : t.shop === "convenience" ? "Kiosk" : "Supermarkt"));
+    if (t.leisure === "playground") z.spiel++;
+  }
+  return {
+    essen: [...new Set(z.essen)].slice(0, 4), wc: z.wc,
+    markt: [...new Set(z.markt)].slice(0, 3), spiel: z.spiel, stand: heute(),
+  };
+}
+// Knopf „Was gibt's hier?“ an Stopp oder Säule
+function stoppUmfeld(st) { umfeldHolen(st.lat, st.lng); }
 
 // Länder-Check einer Karten-Empfehlung: Wo auf der Route gilt sie, wo nicht?
 function laenderCheck(k, trip) {
@@ -1742,12 +1849,12 @@ async function tripAnreichern(trip) {
     if (anreicherLauf !== trip.id) return;
     // 2) Störungs-Check der geplanten Stopps (nur mit OCM-Key, sonst still übersprungen)
     if ((state.settings.ocmKey || "").trim()) { await routeStoerungen(trip, true); if (anreicherLauf !== trip.id) return; }
-    // 3) Umfeld je echtem Stopp — nur was noch fehlt, Platzhalter ausgelassen
+    // 3) Umfeld je echtem Stopp — die Warteschlange hält von selbst Abstand,
+    //    Ergebnisse landen im Cache und erscheinen einzeln in den Stopp-Karten
     for (const st of (trip.stopps || [])) {
       if (anreicherLauf !== trip.id) return; // neue Planung gestartet → abbrechen
-      if (st.platzhalter || !st.id || st.umfeld) continue;
-      await stoppUmfeld(st, true);
-      await sleep(2500); // sanftes Tempo: Gratis-Overpass-Server nicht ins Rate-Limit treiben
+      if (st.platzhalter || !st.lat || umfeldGescheitert.has(umfeldKey(st.lat, st.lng))) continue;
+      await umfeldHolen(st.lat, st.lng);
     }
   } catch (e) { /* Hintergrund — Fehler bleiben stumm, Knöpfe bleiben manuell nutzbar */ }
   finally { if (anreicherLauf === trip.id) { anreicherLauf = null; render(); } }
@@ -3399,9 +3506,12 @@ function stationCard(st, distKm, fr) {
     ${st.kommentar && st.kommentar.text ? `<p class="small muted">💬 Nutzer-Meldung (${esc(st.kommentar.am || "")}): „${esc(st.kommentar.text)}“</p>` : ""}
     ${state.saeulenFotos[st.id] ? `<p><img src="${state.saeulenFotos[st.id]}" alt="Foto-Notiz" style="max-width:130px;border-radius:10px"> <button class="del" data-action="foto-weg" data-id="${esc(st.id)}">✕ Foto</button></p>` : ""}
     <details class="plain"><summary>💳 Alle deine Preise hier (${esc(netzKurz(netzId))})</summary>${saeulenPreisliste(netzId, art)}</details>
+    ${umfeldZeile(st)}
+    ${umfeldFehler && umfeldFehler.k === umfeldKey(st.lat, st.lng) ? `<p class="small" style="color:var(--warn)">⚠ ${esc(umfeldFehler.text)}</p>` : ""}
     <div class="btnrow">
       <a class="btn small primary" href="${mapsUrl(st)}" target="_blank" rel="noopener">🗺 Google Maps</a>
       <button class="btn small" data-action="station-teilen" data-id="${esc(st.id)}">📤 Teilen (→ Hello smart)</button>
+      <button class="btn small ghost" data-action="saeule-umfeld" data-id="${esc(st.id)}" title="Café, WC, Supermarkt, Spielplatz im Umkreis">${umfeldAusCache(st.lat, st.lng) ? "🍔 Umfeld neu laden" : "🍔 Was gibt's hier?"}</button>
       <button class="btn small ghost" data-action="station-fav" data-id="${esc(st.id)}">${fav ? "★ Gemerkt" : "☆ Merken"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="1" data-id="${esc(st.id)}" title="gute Säule — bevorzugen">${(state.saeulenNotizen || {})[st.id] === 1 ? "👍 ✓" : "👍"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="-1" data-id="${esc(st.id)}" title="meiden — nie wieder vorschlagen">${(state.saeulenNotizen || {})[st.id] === -1 ? "👎 ✓" : "👎"}</button>
@@ -3539,8 +3649,8 @@ let stoppFilter = { wc: false, essen: false, markt: false, spiel: false };
 function filterAktiv() { return stoppFilter.wc || stoppFilter.essen || stoppFilter.markt || stoppFilter.spiel; }
 function stoppPasstFilter(st) {
   if (!filterAktiv()) return true;
-  const u = st.umfeld;
-  if (!u || u.fehler) return null; // Umfeld noch nicht geladen → unbekannt
+  const u = umfeldAusCache(st.lat, st.lng);
+  if (!u) return null; // Umfeld noch nicht geladen → unbekannt
   if (stoppFilter.wc && !u.wc) return false;
   if (stoppFilter.essen && !(u.essen && u.essen.length)) return false;
   if (stoppFilter.markt && !(u.markt && u.markt.length)) return false;
@@ -3550,17 +3660,44 @@ function stoppPasstFilter(st) {
 function stoppFilterLeiste(trip) {
   const echte = (trip.stopps || []).filter(s => !s.platzhalter && s.id);
   if (echte.length < 2) return ""; // erst ab 2 echten Stopps sinnvoll
-  const chip = (key, emoji, label) => `<button class="btn small ${stoppFilter[key] ? "primary" : "ghost"}" data-action="stopp-filter" data-key="${key}">${emoji} ${label}${stoppFilter[key] ? " ✓" : ""}</button>`;
+  const chip = (key, emoji, label) => `<button class="btn small ${stoppFilter[key] ? "primary" : "ghost"}" data-action="stopp-filter" data-key="${key}" data-trip="${esc(trip.id)}">${emoji} ${label}${stoppFilter[key] ? " ✓" : ""}</button>`;
+  const geladen = echte.filter(s => umfeldAusCache(s.lat, s.lng)).length;
   let hinweis = "";
   if (filterAktiv()) {
     const passend = echte.filter(s => stoppPasstFilter(s) === true).length;
-    const unbekannt = echte.filter(s => stoppPasstFilter(s) === null).length;
-    hinweis = `<p class="small muted">${passend} von ${echte.length} Stopps passen${unbekannt ? ` · ${unbekannt} noch ohne Umfeld-Daten (lädt im Hintergrund)` : ""}. Nicht passende sind ausgegraut — laden musst du dort trotzdem.</p>`;
+    const offen = echte.length - geladen;
+    hinweis = offen
+      ? `<p class="small">⏳ Umfeld wird geprüft — <b>${geladen} von ${echte.length}</b> Stopps fertig. Die Liste sortiert sich von selbst, du musst nichts tun.</p>`
+      : `<p class="small"><b>${passend} von ${echte.length}</b> Stopps passen. Nicht passende sind ausgegraut — laden musst du dort trotzdem.</p>`;
+  } else if (geladen < echte.length) {
+    hinweis = `<p class="small muted">Tippe einen Filter an — die App holt das Umfeld der Stopps dann automatisch (dauert ein paar Sekunden pro Stopp).</p>`;
   }
   return `<div class="card flat" style="margin:8px 0">
     <p class="small"><b>🔎 Stopps filtern — nur solche mit:</b> <span class="muted">(mehrere = alle müssen zutreffen)</span></p>
     <div class="btnrow">${chip("essen", "☕", "Café/Essen")}${chip("wc", "🚻", "WC")}${chip("markt", "🛒", "Supermarkt")}${chip("spiel", "🛝", "Spielplatz")}</div>
     ${hinweis}</div>`;
+}
+// Umfeld aller echten Stopps nachladen (Filter angetippt) — läuft über die Warteschlange
+function umfeldFuerTrip(trip) {
+  for (const st of (trip.stopps || []).filter(s => !s.platzhalter && s.lat)) {
+    if (!umfeldGescheitert.has(umfeldKey(st.lat, st.lng))) umfeldHolen(st.lat, st.lng);
+  }
+}
+// Einheitliche Umfeld-Zeile für Stopp- und Säulen-Karten
+function umfeldZeile(st) {
+  const u = umfeldAusCache(st.lat, st.lng);
+  const laeuft = umfeldLauf === umfeldKey(st.lat, st.lng);
+  const wartet = umfeldWarte.some(a => a.k === umfeldKey(st.lat, st.lng));
+  if (laeuft || wartet) return `<div class="meta"><span class="pill">${laeuft ? "⏳ schaut nach, was hier ist …" : "… in der Warteschlange"}</span></div>`;
+  if (!u) return "";
+  const leer = !(u.essen || []).length && !u.wc && !(u.markt || []).length && !u.spiel;
+  return `<div class="meta">
+    ${(u.essen || []).length ? `<span class="pill">🍔 ${u.essen.length}× Essen (${esc(u.essen[0])}${u.essen.length > 1 ? " …" : ""})</span>` : ""}
+    ${u.wc ? '<span class="pill">🚻 WC</span>' : ""}
+    ${(u.markt || []).length ? `<span class="pill">🛒 ${esc(u.markt[0])}</span>` : ""}
+    ${u.spiel ? '<span class="pill">🛝 Spielplatz</span>' : ""}
+    ${leer ? `<span class="pill">im ${UMFELD_RADIUS}-m-Umkreis ist in OpenStreetMap nichts eingetragen</span>` : ""}
+  </div>`;
 }
 
 // Kompakte Stopp-Karte im Trip (Ladestopp-Plan)
@@ -3596,14 +3733,8 @@ function stoppCard(st, i, tripId, zeit) {
     ${st.planB ? `<p class="small muted">🅱 Plan B nebenan: ${esc(st.planB.name)} (${n0(st.planB.kw)} kW${st.planB.anz ? ", " + st.planB.anz + " Ladepunkte" : ""}) — <a href="${mapsUrl(st.planB)}" target="_blank" rel="noopener">Maps</a></p>` : ""}
     ${state.saeulenFotos[st.id] ? `<p><img src="${state.saeulenFotos[st.id]}" alt="Foto-Notiz" style="max-width:130px;border-radius:10px"> <button class="del" data-action="foto-weg" data-id="${esc(st.id)}">✕ Foto</button></p>` : ""}
     ${netz ? `<details class="plain"><summary>💳 Alle deine Preise hier (${esc(netzKurz(netz))})</summary>${saeulenPreisliste(netz, "dc")}</details>` : ""}
-    ${st.umfeld && !st.umfeld.fehler ? `<div class="meta">
-      ${st.umfeld.essen && st.umfeld.essen.length ? `<span class="pill">🍔 ${st.umfeld.essen.length}× Essen (${esc(st.umfeld.essen[0])}${st.umfeld.essen.length > 1 ? " …" : ""})</span>` : ""}
-      ${st.umfeld.wc ? '<span class="pill">🚻 WC</span>' : ""}
-      ${st.umfeld.markt && st.umfeld.markt.length ? `<span class="pill">🛒 ${esc(st.umfeld.markt[0])}</span>` : ""}
-      ${st.umfeld.spiel ? '<span class="pill">🛝 Spielplatz</span>' : ""}
-      ${!(st.umfeld.essen || []).length && !st.umfeld.wc && !(st.umfeld.markt || []).length && !st.umfeld.spiel ? '<span class="pill">im 700-m-Umkreis nichts eingetragen</span>' : ""}
-    </div>` : ""}
-    ${umfeldFehler && umfeldFehler.id === st.id ? `<p class="small" style="color:var(--warn)">⚠ ${esc(umfeldFehler.text)}</p>` : ""}
+    ${umfeldZeile(st)}
+    ${umfeldFehler && umfeldFehler.k === umfeldKey(st.lat, st.lng) ? `<p class="small" style="color:var(--warn)">⚠ ${esc(umfeldFehler.text)}</p>` : ""}
     ${st.warum && st.warum.length ? `<details class="plain"><summary>Warum diese Säule?${st.score != null ? " (" + n1(st.score) + " Punkte)" : ""}</summary>
       <ul class="dots small">${st.warum.map(w => `<li>${esc(w)}</li>`).join("")}</ul>
       <p class="small muted">So wählt die App: Leistungs-Stufe minus Umweg, plus Bonus für dein Karten-Netz und viele Ladepunkte — die Säule mit den meisten Punkten gewinnt. Gleiche Logik bei „25 km früher/später“.</p></details>` : ""}
@@ -3612,7 +3743,7 @@ function stoppCard(st, i, tripId, zeit) {
       <button class="btn small" data-action="station-teilen" data-id="${esc(tripId + "-" + st.id)}">📤 Teilen (→ Hello smart)</button>
       <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="-25" ${verschiebeLauf ? "disabled" : ""}>◀ 25 km früher</button>
       <button class="btn small ghost" data-action="stop-move" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" data-delta="25" ${verschiebeLauf ? "disabled" : ""}>25 km später ▶</button>
-      ${!st.platzhalter ? `<button class="btn small ghost" data-action="stopp-umfeld" data-trip="${esc(tripId)}" data-id="${esc(st.id)}" ${umfeldLauf ? "disabled" : ""}>${umfeldLauf === st.id ? "⏳ sucht …" : st.umfeld ? "🍔 Umfeld neu laden" : "🍔 Was gibt's hier?"}</button>
+      ${!st.platzhalter ? `<button class="btn small ghost" data-action="stopp-umfeld" data-trip="${esc(tripId)}" data-id="${esc(st.id)}">${umfeldLauf === umfeldKey(st.lat, st.lng) ? "⏳ sucht …" : umfeldAusCache(st.lat, st.lng) ? "🍔 Umfeld neu laden" : "🍔 Was gibt's hier?"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="1" data-id="${esc(st.id)}" title="gute Säule — bevorzugen">${notiz === 1 ? "👍 ✓" : "👍"}</button>
       <button class="btn small ghost" data-action="saeule-note" data-wert="-1" data-id="${esc(st.id)}" title="meiden — nie wieder vorschlagen">${notiz === -1 ? "👎 ✓" : "👎"}</button>
       <button class="btn small ghost" data-action="saeule-foto" data-id="${esc(st.id)}" title="Foto-Notiz (z. B. versteckte Zufahrt)">📷</button>` : ""}
@@ -3847,12 +3978,28 @@ document.addEventListener("click", (e) => {
   if (act === "stopp-umfeld") {
     const trU = state.trips.find(t => t.id === btn.dataset.trip);
     const stU = trU && (trU.stopps || []).find(x => x.id === id);
-    if (stU && !umfeldLauf) stoppUmfeld(stU);
+    if (stU) {
+      if (btn.textContent.includes("neu laden") && state.umfeldCache) delete state.umfeldCache[umfeldKey(stU.lat, stU.lng)];
+      stoppUmfeld(stU);
+    }
+    return;
+  }
+  if (act === "saeule-umfeld") {
+    const stS = findeStation(id);
+    if (stS) stoppUmfeld(stS);
     return;
   }
   if (act === "stopp-filter") {
     const k = btn.dataset.key;
-    if (k in stoppFilter) { stoppFilter[k] = !stoppFilter[k]; render(); }
+    if (k in stoppFilter) {
+      stoppFilter[k] = !stoppFilter[k];
+      // Filter braucht Umfeld-Daten: fehlende sofort nachladen statt leer zu filtern
+      if (filterAktiv()) {
+        const trF = state.trips.find(t => t.id === btn.dataset.trip) || state.trips.find(t => (t.stopps || []).length);
+        if (trF) umfeldFuerTrip(trF);
+      }
+      render();
+    }
     return;
   }
   if (act === "saeule-note") {
