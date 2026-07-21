@@ -69,6 +69,7 @@ function defaultState() {
       ghToken: "",                                      // optional: löst Neu-Recherche auf GitHub aus
       wallboxPreis: 0.30, wallboxAnteil: 80,            // "Was wäre mit Wallbox?"-Rechner
       pendelKm: 0,                                      // Wochen-Ladeplan: km pro Woche
+      szenEinheit: "akku",                              // „Was wäre wenn?“: akku | kwh | km
       letztesBackup: "",                                // Auto-Backup aufs Pi (wöchentlich)
     },
     fahrt: { modus: "soc", soc: 60, restKm: 250, tempo: 130, winter: false },
@@ -772,18 +773,109 @@ function fahrtRechnung() {
 /* ---------- Säulen-Suche (OpenChargeMap + Nominatim) ---------- */
 let sucheStatus = "";
 const mapsUrl = (st) => `https://www.google.com/maps/dir/?api=1&destination=${st.lat},${st.lng}`;
-async function sucheSaeulen(lat, lng) {
+
+/* ---------- Amtliches Ladesäulen-Register (Bundesnetzagentur, CC BY 4.0) ----------
+   OpenChargeMap wird von der Community gepflegt und hinkt bei neuen Schnellladern
+   hinterher: An der Landsberger Str. 240 in München meldet OCM 50 kW mit Stand 2015,
+   real stehen dort seit 03/2024 150 kW. Das Register kennt jede gemeldete
+   Ladeeinrichtung Deutschlands mit Leistung, Ladepunkten und Baujahr.
+   Arbeitsteilung: Register = Wahrheit über Existenz & Leistung in Deutschland,
+   OpenChargeMap = AC-Säulen, Ausland, Nutzerkommentare und Störungsmeldungen.
+   Die Datei erzeugt gen-saeulen.js (monatlich in der GitHub-Action). */
+let register = null;          // geladene Registerdaten (nur im Speicher, ~1 MB)
+let registerLauf = null;      // läuft gerade ein Ladevorgang?
+const REGISTER_QUELLEN = [
+  "saeulen-de.json",
+  "https://mintberry.org/local/ladekarten/saeulen-de.json",
+  "https://raw.githubusercontent.com/Mintberry1628/ladekarten-checker/main/saeulen-de.json",
+];
+const inDeutschland = (lat, lng) => lat > 47.2 && lat < 55.1 && lng > 5.8 && lng < 15.1;
+function ladeRegister() {
+  if (register) return Promise.resolve(register);
+  if (registerLauf) return registerLauf;
+  registerLauf = (async () => {
+    for (const u of REGISTER_QUELLEN) {
+      try {
+        const r = await fetchMitTimeout(u, 15000);
+        if (!r || !r.ok) continue;
+        const js = await r.json();
+        if (js && Array.isArray(js.saeulen) && js.saeulen.length) { register = js; return js; }
+      } catch (e) { /* nächste Quelle probieren */ }
+    }
+    return null;                 // offline oder Artifact: die App läuft ohne Register weiter
+  })();
+  return registerLauf;
+}
+// Standort aus dem Register in dieselbe Form bringen wie eine OCM-Säule
+function registerStation(e, dist) {
+  const ort = register.orte[e[5]] || "";
+  return {
+    id: "bna" + e[0].toFixed(5) + "_" + e[1].toFixed(5),
+    name: e[6] || ort || "Ladestandort",
+    op: register.betreiber[e[4]] || "",
+    lat: e[0], lng: e[1], kw: e[2], anz: e[3],
+    adresse: [e[6], ort].filter(Boolean).join(", "),
+    status: "im Register gemeldet", statusAm: "",
+    seitJahr: e[7] || 0, quelle: "register", imRegister: true, dist,
+  };
+}
+// Umkreissuche: die Liste ist nach Breitengrad sortiert -> Einstieg per Binärsuche
+function registerUmkreis(lat, lng, km) {
+  if (!register) return [];
+  const s = register.saeulen, dLat = km / 111;
+  let lo = 0, hi = s.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (s[m][0] < lat - dLat) lo = m + 1; else hi = m; }
+  const out = [];
+  for (let i = lo; i < s.length && s[i][0] <= lat + dLat; i++) {
+    const d = haversineKm(lat, lng, s[i][0], s[i][1]);
+    if (d <= km) out.push(registerStation(s[i], d));
+  }
+  return out.sort((a, b) => a.dist - b.dist);
+}
+/* Beide Quellen zusammenführen: gleicher Standort (< 120 m) = ein Eintrag.
+   Bei abweichender Leistung gewinnt das Register — und die App sagt dazu, dass
+   sie korrigiert hat. Was OCM gar nicht kennt, kommt als eigener Standort dazu. */
+function registerMischen(stationen, lat, lng, radiusKm, minKw) {
+  const reg = registerUmkreis(lat, lng, radiusKm).filter(r => !minKw || r.kw >= minKw);
+  if (!reg.length) return stationen;
+  const neu = [];
+  for (const r of reg) {
+    const treffer = stationen.find(s => haversineKm(s.lat, s.lng, r.lat, r.lng) < 0.06);
+    // An derselben Adresse können AC-Parkplatzsäulen und ein Schnelllader nebeneinander
+    // stehen (z. B. Tankstelle + Firmenparkplatz). Eine AC-Säule deshalb NIE auf HPC
+    // „hochkorrigieren“, sondern den Registereintrag als eigenen Standort führen.
+    if (!treffer || ((treffer.kw || 0) < 30 && r.kw >= 50)) { neu.push(r); continue; }
+    treffer.imRegister = true;
+    treffer.seitJahr = r.seitJahr;
+    if (r.kw > (treffer.kw || 0) + 1) {
+      treffer.registerAlt = treffer.kw || 0;      // alte OCM-Angabe merken (wird angezeigt)
+      treffer.kw = r.kw;
+      treffer.anz = Math.max(treffer.anz || 0, r.anz);
+    }
+  }
+  return stationen.concat(neu.slice(0, 40));
+}
+
+async function sucheSaeulen(lat, lng, radiusKm) {
+  // Karte immer auf den Suchpunkt stellen (Zoom behalten, wenn nur „hier“ neu gesucht wird)
+  mapView = { lat, lng, z: mapView && radiusKm ? mapView.z : 13 };
+  mapSel = null;
   const key = (state.settings.ocmKey || "").trim();
-  if (!key) { sucheStatus = "kein-key"; render(); return; }
+  const imRegisterGebiet = inDeutschland(lat, lng);
+  // Ohne OCM-Key geht in Deutschland trotzdem was: das Register braucht keinen Schlüssel
+  if (!key && !imRegisterGebiet) { sucheStatus = "kein-key"; render(); return; }
   sucheStatus = "lädt"; render();
+  if (imRegisterGebiet) await ladeRegister();
   // Wunsch-Leistung: gibt es in der Nähe nichts, weitet die App den Radius
   // selbst aus (bis 300 km) — du musst nicht suchen
   const minKw = +state.settings.suchKw || 0;
-  const radien = minKw ? [30, 80, 160, 300] : [30];
+  const start = Math.max(5, Math.round(radiusKm || 30));
+  const radien = minKw ? [start, 80, 160, 300].filter((r, i) => i === 0 || r > start) : [start];
   try {
     let js = [], radius = radien[0];
     for (const r of radien) {
       radius = r;
+      if (!key) break;                        // nur Register (Deutschland ohne OCM-Schlüssel)
       const url = "https://api.openchargemap.io/v3/poi/?output=json&distanceunit=km&distance=" + r + "&maxresults=30&verbose=false&includecomments=true" +
         (minKw ? "&minpowerkw=" + minKw : "") +
         "&latitude=" + lat + "&longitude=" + lng + "&key=" + encodeURIComponent(key);
@@ -796,6 +888,7 @@ async function sucheSaeulen(lat, lng) {
     }
     state.letzteSuche = {
       lat, lng, zeit: new Date().toISOString(), minKw, radius,
+      registerStand: register ? register.stand : "",
       stationen: js.map(p => {
         // Defekt-Radar: Betriebsstatus + letzter Nutzerkommentar von OpenChargeMap
         const komm = (p.UserComments || [])[0];
@@ -814,6 +907,15 @@ async function sucheSaeulen(lat, lng) {
         };
       }),
     };
+    // Amtliches Register dazumischen (nur Deutschland) — korrigiert veraltete
+    // Leistungsangaben und ergänzt Standorte, die OpenChargeMap noch nicht kennt
+    if (imRegisterGebiet && register) {
+      state.letzteSuche.stationen = registerMischen(state.letzteSuche.stationen, lat, lng, radius, minKw);
+    }
+    if (!state.letzteSuche.stationen.length && !key) { sucheStatus = "kein-key"; render(); return; }
+    // Zoomstufe so wählen, dass die nächsten Treffer wirklich im Bild sind
+    // (Innenstadt = eng, Balkan = weit) — außer bei „Hier suchen“, da bleibt dein Ausschnitt
+    if (!radiusKm) mapZoomAufTreffer();
     sucheStatus = "";
     save(); render();
   } catch (e) {
@@ -831,7 +933,8 @@ function standortSuche() {
   );
 }
 async function adresseSuche(q) {
-  if (!q) return;
+  if (!q) { sucheStatus = "fehler:Erst eine Adresse oder einen Ort eintippen — dann findet die App die Säulen dort."; render(); return; }
+  mapSuchText = q;
   sucheStatus = "lädt"; render();
   try {
     const r = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q));
@@ -896,14 +999,20 @@ function punktBeiKm(coords, cum, km) {
 // die dort wirklich nicht gibt: 150+, und als allerletzte Rettung <150 kW.
 async function ocmBesteSaeule(lat, lng, radiusKm) {
   const key = (state.settings.ocmKey || "").trim();
-  if (!key) return null;
+  // In Deutschland kennt das amtliche Register die Schnelllader zuverlässiger als
+  // OpenChargeMap — deshalb hier als gleichwertige Kandidatenquelle (auch ohne OCM-Key).
+  const mitRegister = inDeutschland(lat, lng);
+  if (mitRegister) await ladeRegister();
+  if (!key && !register) return null;
   const abfrage = async (minKw, dist) => {
+    const ausRegister = mitRegister ? registerUmkreis(lat, lng, dist).filter(r => r.kw >= minKw) : [];
+    if (!key) return ausRegister;
     const url = "https://api.openchargemap.io/v3/poi/?output=json&distanceunit=km&distance=" + dist + "&maxresults=12&verbose=false&minpowerkw=" + minKw +
       "&latitude=" + lat + "&longitude=" + lng + "&key=" + encodeURIComponent(key);
     const r = await fetch(url);
-    if (!r.ok) return [];
+    if (!r.ok) return ausRegister;
     const js = await r.json();
-    return js.filter(p => p.AddressInfo).map(p => ({
+    const ausOcm = js.filter(p => p.AddressInfo).map(p => ({
       id: "ocm" + p.ID,
       name: p.AddressInfo.Title || "Ladepunkt",
       op: (p.OperatorInfo && p.OperatorInfo.Title) || "",
@@ -915,6 +1024,8 @@ async function ocmBesteSaeule(lat, lng, radiusKm) {
       statusAm: (p.DateLastStatusUpdate || p.DateLastVerified || "").slice(0, 10),
       dist: haversineKm(lat, lng, p.AddressInfo.Latitude, p.AddressInfo.Longitude),
     })).filter(k => k.kw >= minKw);
+    // Register zuerst (amtliche Leistung), OCM-Einträge desselben Standorts fallen raus
+    return ausRegister.concat(ausOcm.filter(o => !ausRegister.some(r2 => haversineKm(o.lat, o.lng, r2.lat, r2.lng) < 0.12)));
   };
   const dist = radiusKm || 15;
   try {
@@ -1827,6 +1938,42 @@ function applyTarifUpdate() {
   updateInfo = null; save(); render();
 }
 
+/* ---------- Einheiten für „Was wäre wenn?“ ----------
+   kWh sind exakt, aber niemand denkt in kWh. Volle Akkuladungen („zweimal
+   vollmachen“) und Kilometer („ich fahre ~800 km im Monat“) kann man sich
+   sofort vorstellen — dieselbe Achse, nur andere Beschriftung. */
+function szenEinheiten() {
+  const akku = +state.fahrzeug.akkuNetto || 94;
+  const vMix = (((+state.fahrzeug.verbrauchStadt || 19.5) + (+state.fahrzeug.verbrauchLand || 21.5)) / 2) * (state.kalib.verbrauchFaktor || 1);
+  return {
+    akku: {
+      id: "akku", knopf: "Akkuladungen", achse: "volle Akkuladungen pro Monat",
+      schrittKwh: akku / 4, tickKwh: akku / 2,
+      tick: k => n1(k / akku).replace(",0", "") + "×",
+      lang: k => `${n1(k / akku)} volle Akkuladung${Math.abs(k / akku - 1) < 0.001 ? "" : "en"}`,
+    },
+    kwh: {
+      id: "kwh", knopf: "kWh", achse: "kWh pro Monat",
+      schrittKwh: 10, tickKwh: 50,
+      tick: k => n0(k), lang: k => `${n0(k)} kWh`,
+    },
+    km: {
+      id: "km", knopf: "Kilometer", achse: "gefahrene km pro Monat",
+      schrittKwh: vMix * 0.25, tickKwh: vMix * 2.5,
+      tick: k => n0(k / vMix * 100), lang: k => `${n0(k / vMix * 100)} km`,
+    },
+  };
+}
+function szenEinheit() {
+  const e = szenEinheiten();
+  return e[state.settings.szenEinheit] || e.akku;
+}
+// Ein Wert, drei Blickwinkel — die beiden anderen Einheiten immer als Kontext
+function szenAlle(kwh) {
+  const e = szenEinheiten();
+  return [e.akku.lang(kwh), e.kwh.lang(kwh), e.km.lang(kwh)];
+}
+
 /* ---------- Break-even-Chart (SVG-Liniendiagramm) ---------- */
 const CHART_KONTEXTE = [
   { id: "dc-autobahn", label: "Langstrecke: Ionity an der Autobahn", netz: "ionity", art: "dc" },
@@ -1869,13 +2016,16 @@ function breakEvenChart(kontextId) {
   const Y = c => H - padB - (c / maxY) * (H - padT - padB);
   const farben = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s5)", "var(--s4)"];
 
+  const eh = szenEinheit();
   let grid = "";
   for (let c = 0; c <= maxY; c += 25) {
     grid += `<line x1="${padL}" y1="${Y(c)}" x2="${W - padR}" y2="${Y(c)}" stroke="var(--grid)" stroke-width="1"/>`;
-    grid += `<text x="${padL - 6}" y="${Y(c) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${c}</text>`;
+    grid += `<text x="${padL - 6}" y="${Y(c) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${c}</text>`;
   }
-  for (let k = 0; k <= maxKwh; k += 50) {
-    grid += `<text x="${X(k)}" y="${H - padB + 16}" text-anchor="middle" font-size="10" fill="var(--muted)">${k}</text>`;
+  // X-Achse in der gewählten Einheit (Akkuladungen / kWh / km) — gleiche Kurven,
+  // nur die Beschriftung wechselt mit dem Regler darunter
+  for (let k = 0; k <= maxKwh + 0.01; k += eh.tickKwh) {
+    grid += `<text x="${X(k)}" y="${H - padB + 17}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(eh.tick(k))}</text>`;
   }
   // Linien + Direktbeschriftungen (mit Kollisions-Auflösung: min. 13 px Abstand)
   const yEnds = auswahl.map((l, i) => ({ i, y: Y(l.grund + l.preis * maxKwh) })).sort((a, b) => a.y - b.y);
@@ -1884,7 +2034,7 @@ function breakEvenChart(kontextId) {
   let paths = "", labels = "";
   auswahl.forEach((l, i) => {
     paths += `<path d="M ${X(0)} ${Y(l.grund)} L ${X(maxKwh)} ${Y(l.grund + l.preis * maxKwh)}" stroke="${farben[i]}" stroke-width="2" fill="none"/>`;
-    labels += `<text x="${W - padR + 8}" y="${yLabel[i] + 4}" font-size="11" font-weight="600" fill="${farben[i]}">${esc(kurzName(l.tarif))}</text>`;
+    labels += `<text x="${W - padR + 8}" y="${yLabel[i] + 4}" font-size="11.5" font-weight="650" fill="${farben[i]}">${esc(kurzName(l.tarif))}</text>`;
   });
   // Break-even-Punkte: Abos vs. beste freie Linie — Marker in der FARBE der Abo-Linie,
   // plus Klartext-Liste (auch wenn der Punkt außerhalb des Diagramms liegt)
@@ -1910,9 +2060,10 @@ function breakEvenChart(kontextId) {
   const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monatskosten je nach Lademenge">
     ${grid}
     <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="var(--hairline)" stroke-width="1"/>
+    <line id="szenline" x1="${padL}" x2="${padL}" y1="${padT}" y2="${H - padB}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="5 5" opacity="0"/>
     ${paths}${marker}${labels}
-    <text x="${padL}" y="${H - 4}" font-size="10" fill="var(--muted)">kWh pro Monat →</text>
-    <text x="12" y="${padT}" font-size="10" fill="var(--muted)">€/Monat</text>
+    <text x="${padL}" y="${H - 4}" font-size="11" fill="var(--muted)">${esc(eh.achse)} →</text>
+    <text x="12" y="${padT}" font-size="11" fill="var(--muted)">€/Monat</text>
     <rect class="hover-rect" x="${padL}" y="${padT}" width="${W - padL - padR}" height="${H - padT - padB}" fill="transparent"/>
   </svg>`;
   const legende = auswahl.map((l, i) => `<span><span class="dot" style="background:${farben[i]}"></span>${esc(l.tarif.name)} (${l.grund ? eur(l.grund, 2) + "/Mon. + " : ""}${ct(l.preis)})${l.unsicher ? " ⚠" : ""}</span>`).join("");
@@ -1964,13 +2115,31 @@ function viewMeins() {
     `<details class="grp" ${auf("wissen")}><summary>📖 Wissen &amp; Checklisten</summary><div class="grpbody">${ohneH1(viewWissen())}</div></details>`;
 }
 
+/* Aufklapper (<details>) über ein Neu-Zeichnen hinweg so lassen, wie der Nutzer
+   sie gestellt hat. Schlüssel = Tab + Position + Summary-Text ohne Zahlen
+   (Zähler wie „(12)“ ändern sich, die Zeile bleibt dieselbe). */
+function detailsKey(d, i) {
+  const s = d.querySelector(":scope > summary");
+  return state.tab + "|" + i + "|" + (s ? s.textContent.replace(/[\d.,]/g, "").trim().slice(0, 40) : "");
+}
+function detailsLesen() {
+  const m = {};
+  $$("#main details").forEach((d, i) => { m[detailsKey(d, i)] = d.open; });
+  return m;
+}
+function detailsSetzen(m) {
+  $$("#main details").forEach((d, i) => { const k = detailsKey(d, i); if (k in m) d.open = m[k]; });
+}
+
 function render() {
   renderNav();
   const main = $("#main");
   const fn = { start: viewStart, reise: viewReise, laden: viewLaden, meins: viewMeins }[state.tab] || viewStart;
   const scrollVorher = window.scrollY;
+  const aufklapper = render.letzterTab === state.tab ? detailsLesen() : {};
   // data-bereich steuert das große Wasserzeichen-Icon je Tab (Orientierung)
   main.innerHTML = `<div class="tabpane wrap${render.letzterTab !== state.tab ? " neu" : ""}" data-bereich="${state.tab}">${fn()}<p class="footer-note" title="Diese Nummer steigt bei jeder neuen Version. Zeigt sie nach dem Laden nicht die erwartete/neuere Zahl, hängt der Browser-Cache — dann einmal neu laden (bzw. App schließen & öffnen).">${buildLabel()}</p></div>`;
+  detailsSetzen(aufklapper);
   bindDynamic();
   // Nur beim Tab-Wechsel nach oben springen — sonst Leseposition behalten
   if (render.letzterTab !== state.tab) window.scrollTo(0, 0);
@@ -2328,7 +2497,7 @@ function viewOrte() {
       </div>
       <div class="frow" style="align-items:flex-end">
         <div style="flex:3 1 220px"><label class="f">Adresse (optional, wie bei Google Maps)</label><input type="text" data-ofeld="adresse" value="${esc(ort.adresse || "")}" placeholder="z. B. Musterstr. 12, München"></div>
-        <div style="flex:1 1 160px"><button class="btn small" data-action="ort-saeulen" data-id="${ort.id}" style="width:100%">📍 Säulen dort zeigen</button></div>
+        <div style="flex:1 1 190px"><button class="btn small" data-action="ort-saeulen" data-id="${ort.id}" style="width:100%">🗺 Säulen dort auf der Karte</button></div>
       </div>
       <div class="btnrow"><button class="del" data-action="ort-weg" data-id="${ort.id}">Ort entfernen</button></div>
     </div>`;
@@ -2391,8 +2560,42 @@ function viewOrte() {
 }
 
 /* ---------- Tarife ---------- */
-function viewTarife() {
+/* Inhalt der Break-even-Karte — eigene Funktion, damit ein Wechsel der Situation
+   nur diese Karte neu zeichnet und nicht die ganze Seite (sonst springen alle
+   Aufklapper darüber in ihren Ausgangszustand zurück). */
+function beCardHtml() {
   const c = breakEvenChart(state.chartKontext);
+  // Regler rastet in der gewählten Einheit ein (¼ Akku / 10 kWh / 25 km)
+  const eh = szenEinheit();
+  const stufen = Math.max(4, Math.round(c.maxKwh / eh.schrittKwh));
+  const idx = Math.max(0, Math.min(stufen, Math.round((Math.round(monatsAnalyse().kwhGesamt) || 100) / eh.schrittKwh)));
+  return `<h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
+    ${iBox("be-hilfe", "Jede Linie = ein Tarif (Grundgebühr + kWh-Preis). Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo. Mit dem Finger über das Diagramm fahren zeigt Preise je Lademenge.")}
+    <label class="f">Situation wählen</label>
+    <select id="chartctx">${CHART_KONTEXTE.map(k => `<option value="${k.id}" ${k.id === state.chartKontext ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select>
+    <div class="chartzoom" id="chartzoom"><div class="chartbox" id="chartbox">${c.svg}<div class="charttip" id="charttip"></div></div></div>
+    <div class="zoomctl">
+      <button class="btn small ghost" data-zoom="-1" aria-label="Diagramm kleiner">−</button>
+      <span class="zval" id="zoomval">100 %</span>
+      <button class="btn small ghost" data-zoom="1" aria-label="Diagramm größer">＋</button>
+      <button class="btn small ghost" data-zoom="0">↺ Zurücksetzen</button>
+      <span class="small muted">Größer ziehen: Knöpfe oder zwei Finger — dann seitlich schieben.</span>
+    </div>
+    <div class="legend">${c.legende}</div>
+    ${c.beListe && c.beListe.length ? `<ul class="clean" style="margin-top:8px">${c.beListe.map(b =>
+    `<li class="small"><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${b.farbe};margin-right:6px"></span>${esc(b.text)}</li>`).join("")}</ul>` : ""}
+    <hr class="divider">
+    <label class="f">Was wäre wenn? So viel lädst du im Monat ${iBtn("szen-hilfe")}</label>
+    ${iBox("szen-hilfe", `Der Regler spielt Szenarien durch: Was würden die Optionen dieser Situation kosten, und welche wäre die günstigste? Stell die Einheit ein, in der du am leichtesten denkst — <b>Akkuladungen</b> (1× voll = ${state.fahrzeug.akkuNetto} kWh bei deinem ${esc(state.fahrzeug.name)}), <b>kWh</b> oder <b>Kilometer</b>. Die X-Achse des Diagramms wechselt mit. Deine echten Orte und Empfehlungen bleiben unberührt.`)}
+    <div class="seg" id="szen-eh">${["akku", "kwh", "km"].map(id =>
+      `<button data-eh="${id}" class="${eh.id === id ? "on" : ""}">${esc(szenEinheiten()[id].knopf)}</button>`).join("")}</div>
+    <input type="range" id="szenario" min="0" max="${stufen}" step="1" value="${idx}" style="width:100%">
+    <p class="szenwert" id="szenario-wert"></p>
+    <p class="small num" id="szenario-out"></p>
+    <details><summary>Zahlen als Tabelle</summary>${c.tabelle}</details>`;
+}
+
+function viewTarife() {
   let html = `<h1>Tarife &amp; Break-even</h1>`;
 
   // 🏷 Aktuelle Angebote & beste Buchungszeit (je Aktion EINE Karte, nicht je Tarif)
@@ -2431,21 +2634,7 @@ function viewTarife() {
      „Welche Karten habe ich?“ kommt vor „Ab wann lohnt sich ein Abo?“. */
   const vorAnalyse = html; html = "";
 
-  html += `<div class="card"><h2>Ab wann lohnt sich welches Abo? ${iBtn("be-hilfe")}</h2>
-    ${iBox("be-hilfe", "Jede Linie = ein Tarif (Grundgebühr + kWh-Preis). Der farbige Punkt sitzt auf der <b>Abo-Linie gleicher Farbe</b> und markiert den Break-even: ab dieser Monats-Lademenge ist das Abo günstiger als die beste Karte ohne Grundgebühr. Darunter: Finger weg vom Abo. Mit dem Finger über das Diagramm fahren zeigt Preise je Lademenge.")}
-    <label class="f">Situation wählen</label>
-    <select id="chartctx">${CHART_KONTEXTE.map(k => `<option value="${k.id}" ${k.id === state.chartKontext ? "selected" : ""}>${esc(k.label)}</option>`).join("")}</select>
-    <div class="chartbox" id="chartbox">${c.svg}<div class="charttip" id="charttip"></div></div>
-    <div class="legend">${c.legende}</div>
-    ${c.beListe && c.beListe.length ? `<ul class="clean" style="margin-top:8px">${c.beListe.map(b =>
-      `<li class="small"><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${b.farbe};margin-right:6px"></span>${esc(b.text)}</li>`).join("")}</ul>` : ""}
-    <hr class="divider">
-    <label class="f">Was wäre wenn? Lademenge pro Monat schieben ${iBtn("szen-hilfe")}</label>
-    ${iBox("szen-hilfe", "Der Regler spielt Szenarien durch: Was würden die Optionen dieser Situation bei X kWh/Monat kosten, und welche wäre die günstigste? Deine echten Orte und Empfehlungen bleiben unberührt.")}
-    <input type="range" id="szenario" min="0" max="${c.maxKwh}" step="10" value="${Math.max(0, Math.min(c.maxKwh, Math.round(monatsAnalyse().kwhGesamt) || 100))}" style="width:100%">
-    <p class="small num" id="szenario-out"></p>
-    <details><summary>Zahlen als Tabelle</summary>${c.tabelle}</details>
-  </div>`;
+  html += `<div class="card" id="be-card">${beCardHtml()}</div>`;
 
   // Jahres-Abo-Fahrplan: welche Abos wann buchen/kündigen?
   const fahrplan = (() => {
@@ -2571,7 +2760,7 @@ function viewTarife() {
   for (const [kat, titel] of gruppen) {
     const rest = state.tarife.filter(t => t.kategorie === kat && !meineKarten.includes(t));
     if (!rest.length) continue;
-    html += `<details class="grp"${meineKarten.length ? "" : " open"}><summary>${titel} <span class="muted">(${rest.length})</span></summary>
+    html += `<details class="grp"><summary>${titel} <span class="muted">(${rest.length})</span></summary>
       <div class="grpbody"><div class="grid cols2">${rest.map(tarifKarte).join("")}</div></div></details>`;
   }
   html += analyseHtml;
@@ -2873,26 +3062,11 @@ function viewFahren() {
   </div>
 
   ${sect("Säule finden")}
-  <div class="card"><h2>📍 Nächste Ladesäulen finden</h2>
+  <div class="card"><h2>📍 Ladesäule finden ${iBtn("wkw")}</h2>
+    ${iBox("wkw", "Adresse eintippen (wie bei Google Maps) — die Karte springt hin und zeigt die Säulen als Pins. Die <b>Farbe ist die Leistungsklasse</b> (Legende unter der Karte), die Zahl im Pin die kW, <b>·4</b> heißt vier Ladepunkte. Karte ziehen, dann „⟳ Hier suchen“ — so schaust du dir jede Gegend an. Bei „Leistung: egal“ stehen der nächste Schnelllader und die nächste AC-Säule ganz oben in der Liste.")}
     ${!(state.settings.ocmKey || "").trim() ? `<div class="card flat alert info"><p class="small"><b>Einmalig einrichten (2 Minuten, kostenlos):</b> Auf <a href="https://openchargemap.org" target="_blank" rel="noopener">openchargemap.org</a> registrieren → Profil → „my apps“ → „Register an Application“ → den API-Key hier eintragen. Damit bekommt die App weltweite Live-Säulendaten (Stationen kommen und gehen — die Quelle ist immer aktuell).</p>
     <label class="f">OpenChargeMap API-Key</label><input type="text" data-sfeldtext="ocmKey" value="${esc(state.settings.ocmKey)}" placeholder="z. B. 123abc..."></div>` : ""}
-    <div class="btnrow">
-      <button class="btn primary" data-action="suche-standort">📍 Um mich herum</button>
-    </div>
-    <div class="frow" style="margin-top:8px; align-items:flex-end">
-      <div style="flex:3 1 180px"><label class="f">…oder Ort/Adresse</label><input type="text" id="suchadresse" placeholder="z. B. Villach" value=""></div>
-      <div style="flex:2 1 140px"><label class="f">Wunsch-Leistung ${iBtn("wkw")}</label><select data-sfeld="suchKw">
-        <option value="0" ${!state.settings.suchKw ? "selected" : ""}>egal — alles zeigen</option>
-        ${[50, 150, 300, 350, 400].map(k => `<option value="${k}" ${+state.settings.suchKw === k ? "selected" : ""}>mind. ${k} kW</option>`).join("")}
-      </select></div>
-      <div style="flex:1 1 90px"><button class="btn" data-action="suche-adresse" style="width:100%">Suchen</button></div>
-    </div>
-    ${iBox("wkw", "Bei „egal“ zeigt dir die App den <b>nächsten Schnelllader</b> und die <b>nächste normale AC-Säule</b> zuerst. Gibt's bei dir keine 350/400er? Wunsch-Leistung einstellen — dann sucht die App automatisch in größerem Umkreis (bis 300 km) nach dem nächsten passenden.")}
-    ${sucheStatus === "ortung" ? '<p class="small">📡 Standort wird ermittelt …</p>' : ""}
-    ${sucheStatus === "lädt" ? '<p class="small">⏳ Säulen werden geladen …</p>' : ""}
-    ${sucheStatus === "kein-key" ? '<p class="small" style="color:var(--warn)">Bitte erst den OpenChargeMap-Key eintragen (siehe oben).</p>' : ""}
-    ${sucheStatus.startsWith("fehler:") ? `<p class="small" style="color:var(--crit)">${esc(sucheStatus.slice(7))}</p>` : ""}
-    ${state.letzteSuche ? stationListe(state.letzteSuche, fr) : ""}
+    ${saeulenKarte(fr)}
   </div>
 
   ${state.favoriten.length ? `<div class="card"><h2>⭐ Gemerkte Säulen</h2>${state.favoriten.map(st => stationCard(st, null, fr)).join("")}</div>` : ""}
@@ -2986,6 +3160,211 @@ function viewFahren() {
   return html;
 }
 
+/* ============================================================
+   SÄULEN-KARTE — Karte + Liste nach dem Google-Maps-Prinzip
+   Adresse eingeben → Karte springt hin → Säulen als Pins (Leistung, Anzahl,
+   Störungen) + dieselbe Auswahl als Liste daneben. Ziehen bewegt, ＋/− und
+   zwei Finger zoomen; nach dem Verschieben fragt „Hier suchen“ neu ab
+   (bewusst auf Knopfdruck: spart Datenvolumen und API-Kontingent).
+   Kacheln: OpenStreetMap. Kein externes Kartenframework — eine Datei bleibt eine Datei.
+   ============================================================ */
+let mapView = null;          // { lat, lng, z } — überlebt jedes Neu-Rendern
+let mapSel = null;           // angetippte Säule (id) — Pin + Listenkarte hervorgehoben
+let mapSuchText = "";        // letzte Eingabe im Suchfeld
+let mapScroll = false;       // nach „Säulen dort zeigen“ einmal zur Karte scrollen
+const MT = 256;
+const mapX = (lon, z) => (lon + 180) / 360 * Math.pow(2, z);
+const mapY = (lat, z) => (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, z);
+const mapLon = (x, z) => x / Math.pow(2, z) * 360 - 180;
+const mapLat = (y, z) => { const n = Math.PI - 2 * Math.PI * y / Math.pow(2, z); return 180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))); };
+function mapStart() {
+  if (mapView) return mapView;
+  if (state.letzteSuche) mapView = { lat: state.letzteSuche.lat, lng: state.letzteSuche.lng, z: state.letzteSuche.zoom || 13 };
+  else mapView = { lat: 48.137, lng: 11.575, z: 11 };   // München, bis die erste Suche läuft
+  return mapView;
+}
+// Suchradius = was gerade auf dem Schirm ist (halbe Bildschirm-Diagonale)
+function mapRadiusKm() {
+  const box = $("#lkmap"), v = mapStart();
+  const W = box ? box.clientWidth : 340, H = box ? box.clientHeight : 320;
+  const kmProPx = 156543.03 * Math.cos(v.lat * Math.PI / 180) / Math.pow(2, v.z) / 1000;
+  return Math.max(2, Math.min(120, Math.round(Math.hypot(W, H) / 2 * kmProPx)));
+}
+/* Leistungs-Stufen der Pins — dein #5 lädt bis 400 kW, deshalb sind die
+   schnellen Klassen (250+ / 350+) eigene Farben und nicht ein Topf „HPC“. */
+const PIN_STUFEN = [
+  { ab: 350, klasse: "kw350", text: "ab 350 kW — volle Ladeleistung für deinen #5" },
+  { ab: 250, klasse: "kw250", text: "250–349 kW — sehr schnell" },
+  { ab: 150, klasse: "kw150", text: "150–249 kW — schnell" },
+  { ab: 50, klasse: "kw50", text: "50–149 kW — normales DC" },
+  { ab: 0, klasse: "ac", text: "unter 50 kW — AC/langsam" },
+];
+const pinStufe = (kw) => PIN_STUFEN.find(s => (kw || 0) >= s.ab) || PIN_STUFEN[PIN_STUFEN.length - 1];
+function pinLegende() {
+  return `<div class="lklegend">${PIN_STUFEN.map(s =>
+    `<span><i class="lkpin ${s.klasse}" style="position:static;transform:none;padding:0;box-shadow:none"></i>${esc(s.text)}</span>`).join("")}
+    <span><i class="lkpin kaputt" style="position:static;transform:none;padding:0;box-shadow:none"></i>als gestört gemeldet</span></div>`;
+}
+
+// Nach einer neuen Suche: so weit herauszoomen, dass die 6 nächsten Säulen im Bild sind
+function mapZoomAufTreffer() {
+  const s = state.letzteSuche;
+  if (!s || !s.stationen.length) return;
+  const d = s.stationen.map(x => haversineKm(s.lat, s.lng, x.lat, x.lng)).sort((a, b) => a - b);
+  const ziel = Math.max(0.6, d[Math.min(d.length - 1, 5)]);
+  const box = $("#lkmap");
+  const halb = Math.min(box ? box.clientWidth : 340, box ? box.clientHeight : 320) / 2 - 30;
+  let z = 16;
+  while (z > 4 && ziel / (156543.03 * Math.cos(s.lat * Math.PI / 180) / Math.pow(2, z) / 1000) > halb) z--;
+  s.zoom = z;                        // bleibt gespeichert: nach Neustart derselbe Ausschnitt
+  mapView = { lat: s.lat, lng: s.lng, z };
+}
+function saeulenKarte(fr) {
+  const s = state.letzteSuche;
+  return `<div class="geo split">
+    <div class="geosearch">
+      <input type="text" id="mapsuche" placeholder="Adresse, Ort oder Straße — z. B. Leopoldstr. 12, München" value="${esc(mapSuchText)}">
+      <button class="btn primary" data-action="map-suche">Suchen</button>
+      <button class="btn ghost" data-action="suche-standort" title="Meinen Standort verwenden">📍 Hier</button>
+      <select data-sfeld="suchKw" title="Wunsch-Leistung">
+        <option value="0" ${!state.settings.suchKw ? "selected" : ""}>Leistung: egal</option>
+        ${[50, 150, 300, 350, 400].map(k => `<option value="${k}" ${+state.settings.suchKw === k ? "selected" : ""}>ab ${k} kW</option>`).join("")}
+      </select>
+    </div>
+    <div class="lkmap" id="lkmap">
+      <div class="lktiles" id="lktiles"></div>
+      <div class="lkpins" id="lkpins"></div>
+      <div class="lkctl">
+        <button data-map="in" aria-label="Karte vergrößern">＋</button>
+        <button data-map="out" aria-label="Karte verkleinern">−</button>
+      </div>
+      <button class="btn small primary lkhier hidden" id="lkhier" data-map="hier">⟳ Hier suchen</button>
+      <span class="mapattrib">© OpenStreetMap · Säulen: OpenChargeMap + Bundesnetzagentur</span>
+    </div>
+    <div class="geolist" id="geolist">
+      ${sucheStatus === "ortung" ? '<p class="small">📡 Standort wird ermittelt …</p>' : ""}
+      ${sucheStatus === "lädt" ? '<p class="small">⏳ Säulen werden geladen …</p>' : ""}
+      ${sucheStatus === "kein-key" ? '<p class="small" style="color:var(--warn)">Trag zuerst den OpenChargeMap-Key ein (Feld oberhalb der Karte) — dann kommen die Säulen.</p>' : ""}
+      ${sucheStatus.startsWith("fehler:") ? `<p class="small" style="color:var(--crit)">${esc(sucheStatus.slice(7))}</p>` : ""}
+      ${pinLegende()}
+      ${s ? `<p class="small muted">Tipp: Pin oder Listeneintrag antippen — beide zeigen dieselbe Säule.</p>${stationListe(s, fr)}`
+      : `<p class="small">Noch nichts gesucht. Gib oben eine <b>Adresse</b> ein oder tippe <b>📍 Hier</b> — die Karte zeigt dir dann die Säulen mit Leistung, Anzahl der Ladepunkte und deiner besten Karte.</p>`}
+    </div>
+  </div>`;
+}
+function zeichneKarte() {
+  const box = $("#lkmap"); if (!box) return;
+  const v = mapStart(), W = box.clientWidth, H = box.clientHeight;
+  const cx = mapX(v.lng, v.z), cy = mapY(v.lat, v.z), maxT = Math.pow(2, v.z);
+  let t = "";
+  for (let tx = Math.floor(cx - W / 2 / MT); tx <= Math.floor(cx + W / 2 / MT); tx++) {
+    for (let ty = Math.max(0, Math.floor(cy - H / 2 / MT)); ty <= Math.min(maxT - 1, Math.floor(cy + H / 2 / MT)); ty++) {
+      const wx = ((tx % maxT) + maxT) % maxT;
+      // kein loading="lazy": die Kacheln liegen per Definition im Bild — sonst
+      // bleibt die Karte grau, bis man zufällig daran vorbeiscrollt
+      t += `<img src="https://tile.openstreetmap.org/${v.z}/${wx}/${ty}.png" alt="" onerror="this.style.visibility='hidden'" style="left:${Math.round((tx - cx) * MT + W / 2)}px;top:${Math.round((ty - cy) * MT + H / 2)}px">`;
+    }
+  }
+  $("#lktiles").innerHTML = t;
+  const px = (lng) => (mapX(lng, v.z) - cx) * MT + W / 2;
+  const py = (lat) => (mapY(lat, v.z) - cy) * MT + H / 2;
+  let p = "";
+  if (state.letzteSuche) p += `<span class="lkme" style="left:${px(state.letzteSuche.lng).toFixed(0)}px;top:${py(state.letzteSuche.lat).toFixed(0)}px" title="Suchpunkt"></span>`;
+  for (const st of (state.letzteSuche ? state.letzteSuche.stationen : [])) {
+    const x = px(st.lng), y = py(st.lat);
+    if (x < -70 || y < -50 || x > W + 70 || y > H + 50) continue;
+    const kl = st.defekt ? "kaputt" : pinStufe(st.kw).klasse;
+    p += `<button class="lkpin ${kl}${mapSel === st.id ? " on" : ""}" data-pin="${esc(st.id)}" style="left:${x.toFixed(0)}px;top:${y.toFixed(0)}px"
+      title="${esc(st.name)}${st.op ? " · " + esc(st.op) : ""}">${st.kw ? n0(st.kw) + " kW" : "AC"}${st.anz > 1 ? " ·" + st.anz : ""}</button>`;
+  }
+  $("#lkpins").innerHTML = p;
+}
+// Pin ↔ Liste: dieselbe Säule, beide Richtungen
+function waehleSaeule(id, zentrieren) {
+  mapSel = id;
+  const st = findeStation(id);
+  if (st && zentrieren) { mapView = { lat: st.lat, lng: st.lng, z: Math.max(mapStart().z, 14) }; }
+  zeichneKarte();
+  let treffer = null;
+  $$("#geolist .station").forEach(c => { const an = c.dataset.st === id; c.classList.toggle("sel", an); if (an) treffer = c; });
+  if (treffer && !zentrieren) treffer.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function bindKarte() {
+  const box = $("#lkmap"); if (!box) return;
+  mapStart(); zeichneKarte();
+  const tiles = $("#lktiles"), pins = $("#lkpins"), hier = $("#lkhier");
+  const zeigHier = () => { if (hier) hier.classList.remove("hidden"); };
+  const zoomUm = (d) => {
+    const z = Math.max(3, Math.min(18, mapView.z + d));
+    if (z === mapView.z) return;
+    mapView.z = z; zeichneKarte(); zeigHier();
+  };
+  let drag = null, pinch = 0;
+  box.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("[data-pin],[data-map]")) return;
+    drag = { x: e.clientX, y: e.clientY };
+    box.classList.add("drag");
+    try { box.setPointerCapture(e.pointerId); } catch (err) { /* egal */ }
+  });
+  box.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    tiles.style.transform = pins.style.transform = `translate(${e.clientX - drag.x}px,${e.clientY - drag.y}px)`;
+  });
+  const losLassen = (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag = null; box.classList.remove("drag");
+    tiles.style.transform = pins.style.transform = "";
+    if (Math.abs(dx) + Math.abs(dy) < 4) return;
+    const z = mapView.z;
+    mapView.lat = mapLat(mapY(mapView.lat, z) - dy / MT, z);
+    mapView.lng = mapLon(mapX(mapView.lng, z) - dx / MT, z);
+    zeichneKarte(); zeigHier();
+  };
+  box.addEventListener("pointerup", losLassen);
+  box.addEventListener("pointercancel", () => {
+    drag = null; box.classList.remove("drag");
+    tiles.style.transform = pins.style.transform = "";
+  });
+  box.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 2) return;
+    drag = null; box.classList.remove("drag");
+    tiles.style.transform = pins.style.transform = "";
+    pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  }, { passive: true });
+  box.addEventListener("touchmove", (e) => {
+    if (e.touches.length !== 2 || !pinch) return;
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    if (d / pinch > 1.55) { zoomUm(1); pinch = d; }
+    else if (d / pinch < 0.65) { zoomUm(-1); pinch = d; }
+  }, { passive: true });
+  box.addEventListener("touchend", () => { pinch = 0; });
+  box.addEventListener("dblclick", () => zoomUm(1));
+  box.addEventListener("wheel", (e) => { e.preventDefault(); zoomUm(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+  box.addEventListener("click", (e) => {
+    const mb = e.target.closest("[data-map]");
+    if (mb) {
+      if (mb.dataset.map === "in") zoomUm(1);
+      else if (mb.dataset.map === "out") zoomUm(-1);
+      else sucheSaeulen(mapView.lat, mapView.lng, mapRadiusKm());
+      return;
+    }
+    const pin = e.target.closest("[data-pin]");
+    if (pin) waehleSaeule(pin.dataset.pin, false);
+  });
+  const liste = $("#geolist");
+  if (liste) liste.addEventListener("click", (e) => {
+    if (e.target.closest("button,a,summary,input,select,label")) return;
+    const karte = e.target.closest(".station");
+    if (karte && karte.dataset.st) waehleSaeule(karte.dataset.st, true);
+  });
+  const feld = $("#mapsuche");
+  if (feld) feld.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { mapSuchText = feld.value.trim(); adresseSuche(mapSuchText); }
+  });
+  if (mapScroll) { mapScroll = false; box.scrollIntoView({ block: "center", behavior: "smooth" }); }
+}
+
 /* ---------- Stations-Karten (Säulen-Finder) ---------- */
 function stationCard(st, distKm, fr) {
   const netzId = opZuNetz(st.op) || (st.kw >= 30 ? "dc-fremd" : "ac-fremd");
@@ -3000,10 +3379,23 @@ function stationCard(st, distKm, fr) {
         : '<span class="pill crit">zu weit ✗</span>';
   }
   const fav = state.favoriten.some(x => x.id === st.id);
-  return `<div class="card flat station" style="border-left:4px solid ${netzFarbe(netzId)}">
+  /* Datenalter ehrlich zeigen: OpenChargeMap ist community-gepflegt. Ein Eintrag
+     von 2015 („50 kW“) kann heute ein 300-kW-Hub sein — genau so ein Fall ist an
+     der Landsberger Straße aufgefallen. Ab 3 Jahren ohne Bestätigung warnen wir
+     und bieten den Direktlink zum Korrigieren an. */
+  const alterJ = st.statusAm ? (Date.now() - new Date(st.statusAm + "T12:00:00")) / 315576e5 : null;
+  // Nur bei DC-Ladern warnen: eine 22-kW-Straßensäule bleibt eine 22-kW-Säule,
+  // ein alter DC-Standort wird dagegen oft auf 150–300 kW aufgerüstet.
+  // Steht der Standort im amtlichen Register, ist die Leistung bestätigt — dann keine Warnung.
+  const veraltet = alterJ != null && alterJ >= 3 && (st.kw || 0) >= 30 && !st.imRegister;
+  const ocmId = /^ocm(\d+)$/.exec(st.id || "");
+  return `<div class="card flat station${mapSel === st.id ? " sel" : ""}" data-st="${esc(st.id)}" style="border-left:4px solid ${netzFarbe(netzId)}">
     <div class="tarif head"><b>${esc(st.name)}</b> <span class="preis-haupt num">${st.kw ? n0(st.kw) + " kW" : ""}</span></div>
-    <div class="meta">${st.op ? `<span class="pill">${esc(st.op)}</span>` : ""}${st.anz ? `<span class="pill">${st.anz} Ladepunkte</span>` : ""}${st.statusAm ? `<span class="pill">${esc(st.status || "Status")} · Stand ${datumDE(st.statusAm)}</span>` : ""}${distKm != null ? `<span class="pill">≈ ${n0(distKm * STRASSEN_FAKTOR)} km Straße</span>` : ""}${reach}${st.defekt ? '<span class="pill crit">⚠ als außer Betrieb gemeldet</span>' : ""}</div>
+    <div class="meta">${st.op ? `<span class="pill">${esc(st.op)}</span>` : ""}${st.anz ? `<span class="pill">${st.anz} Ladepunkte</span>` : ""}${st.statusAm ? `<span class="pill${veraltet ? " warn" : ""}">${esc(st.status || "Status")} · Stand ${datumDE(st.statusAm)}${veraltet ? ` (${Math.floor(alterJ)} J. alt)` : ""}</span>` : ""}${st.imRegister ? `<span class="pill good">✓ amtliches Register${st.seitJahr ? " · seit " + st.seitJahr : ""}</span>` : ""}${distKm != null ? `<span class="pill">≈ ${n0(distKm * STRASSEN_FAKTOR)} km Straße</span>` : ""}${reach}${st.defekt ? '<span class="pill crit">⚠ als außer Betrieb gemeldet</span>' : ""}</div>
     <p class="small">${esc(st.adresse || "")}${b ? ` — deine beste Karte hier: <b>${esc(b.name)}</b> (${ct(b.preis)})` : ` — <b>keine deiner Karten passt hier</b>: nur per Betreiber-App (z. B. Tesla-/Kaufland-App) oder Preis vor Ort prüfen`}</p>
+    ${st.registerAlt != null ? `<p class="small" style="color:var(--good)">✓ Leistung korrigiert: Die Bundesnetzagentur meldet hier <b>${n0(st.kw)} kW</b>${st.seitJahr ? ` (in Betrieb seit ${st.seitJahr})` : ""} — OpenChargeMap führt noch ${n0(st.registerAlt)} kW.</p>` : ""}
+    ${st.quelle === "register" ? `<p class="small muted">Nur im amtlichen Register — OpenChargeMap kennt diesen Standort noch nicht. Ladepunkte und Leistung stammen aus der Betreiber-Meldung an die Bundesnetzagentur, Nutzerkommentare gibt es dazu nicht.</p>` : ""}
+    ${veraltet ? `<p class="small" style="color:var(--warn)">⚠️ Seit ${Math.floor(alterJ)} Jahren niemand bestätigt — die ${st.kw ? n0(st.kw) + " kW" : "Leistung"} sind womöglich veraltet (Standorte werden oft auf 150–300 kW aufgerüstet). Vor Ort gegenprüfen${ocmId ? ` und <a href="https://openchargemap.org/site/poi/details/${ocmId[1]}" target="_blank" rel="noopener">bei OpenChargeMap korrigieren</a> — danach stimmt es für alle` : ""}.</p>` : ""}
     ${st.kommentar && st.kommentar.text ? `<p class="small muted">💬 Nutzer-Meldung (${esc(st.kommentar.am || "")}): „${esc(st.kommentar.text)}“</p>` : ""}
     ${state.saeulenFotos[st.id] ? `<p><img src="${state.saeulenFotos[st.id]}" alt="Foto-Notiz" style="max-width:130px;border-radius:10px"> <button class="del" data-action="foto-weg" data-id="${esc(st.id)}">✕ Foto</button></p>` : ""}
     <details class="plain"><summary>💳 Alle deine Preise hier (${esc(netzKurz(netzId))})</summary>${saeulenPreisliste(netzId, art)}</details>
@@ -3035,7 +3427,7 @@ function stationListe(suche, fr) {
     top +
     mitDist.slice(0, 15).map(x => stationCard(x.st, x.d, fr)).join("") +
     `<p class="small">${iBtn("finder-legende")} <span class="muted">Legende &amp; Live-Belegung erklärt</span></p>` +
-    iBox("finder-legende", `<span class="pill good">erreichbar ✓</span> = schaffst du mit Reserve (${state.settings.ankunftSoc} %) + Sicherheitspuffer (${state.settings.puffer} %) · <span class="pill warn">knapp</span> = nur, wenn du den Puffer aufbrauchst — nicht empfohlen · <span class="pill crit">zu weit ✗</span> = reicht rechnerisch nicht.<br><br>Ob gerade <b>frei oder besetzt</b> ist, geben die Betreiber nur in ihren eigenen Apps live frei — hier siehst du die Anzahl der Ladepunkte und den letzten gemeldeten Status samt Datum (Quelle OpenChargeMap). Live-Check kurz vor Ankunft: Betreiber-App oder <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a>/Ladefuchs.`);
+    iBox("finder-legende", `<span class="pill good">erreichbar ✓</span> = schaffst du mit Reserve (${state.settings.ankunftSoc} %) + Sicherheitspuffer (${state.settings.puffer} %) · <span class="pill warn">knapp</span> = nur, wenn du den Puffer aufbrauchst — nicht empfohlen · <span class="pill crit">zu weit ✗</span> = reicht rechnerisch nicht.<br><br>Ob gerade <b>frei oder besetzt</b> ist, geben die Betreiber nur in ihren eigenen Apps live frei — hier siehst du die Anzahl der Ladepunkte und den letzten gemeldeten Status samt Datum (Quelle OpenChargeMap). Live-Check kurz vor Ankunft: Betreiber-App oder <a href="https://www.chargeprice.app" target="_blank" rel="noopener">chargeprice.app</a>/Ladefuchs.<br><br><b>Zwei Quellen, klare Arbeitsteilung:</b> In <b>Deutschland</b> kommt die Wahrheit über Existenz und Leistung aus dem <b>amtlichen Ladesäulenregister der Bundesnetzagentur</b> (jeder Betreiber muss dort melden) — solche Standorte tragen das grüne <span class="pill good">✓ amtliches Register</span>. Weicht OpenChargeMap ab, korrigiert die App die kW-Zahl und sagt es dazu. <b>Alles andere</b> — AC-Säulen, Ausland (Österreich, Bosnien …), Nutzerkommentare und Störungsmeldungen — liefert <b>OpenChargeMap</b>, community-gepflegt und deshalb stellenweise veraltet; unbestätigte DC-Einträge ab 3 Jahren markiert die App gelb und verlinkt die Korrektur. Register-Daten © Bundesnetzagentur, CC BY 4.0.`);
 }
 function findeStation(id) {
   if (state.letzteSuche) { const s = state.letzteSuche.stationen.find(x => x.id === id); if (s) return s; }
@@ -3275,7 +3667,30 @@ function zaehleHoch() {
 function bindDynamic() {
   skaliereKarten();
   zaehleHoch();
-  // Chart-Hover
+  bindChart();
+  bindKarte();
+  // Import-Datei
+  const imp = $("#importfile");
+  if (imp) imp.addEventListener("change", () => {
+    const file = imp.files[0]; if (!file) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const s = JSON.parse(rd.result);
+        if (!s.tarife || !s.orte) throw new Error("Format");
+        localStorage.setItem(LS_KEY, JSON.stringify(s));
+        loadState(); render();
+        alert("Daten importiert ✓");
+      } catch (e) { alert("Datei konnte nicht gelesen werden — ist das ein Export dieser App?"); }
+    };
+    rd.readAsText(file);
+  });
+}
+
+/* Break-even-Karte verdrahten. Wird nach jedem Render und nach dem Wechsel der
+   Situation aufgerufen — die Karte zeichnet sich dann allein neu. */
+let chartZoom = 1;   // Vergrößerung des Diagramms (1 = passt in die Karte, max. 4×)
+function bindChart() {
   const box = $("#chartbox");
   if (box) {
     const svg = $("svg", box), tip = $("#charttip");
@@ -3298,36 +3713,81 @@ function bindDynamic() {
     });
     svg.addEventListener("pointerleave", () => { tip.style.display = "none"; });
     const sel = $("#chartctx");
-    if (sel) sel.addEventListener("change", () => { state.chartKontext = sel.value; save(); render(); });
+    const neuZeichnen = () => {
+      const karte = $("#be-card");
+      if (!karte) { render(); return; }
+      karte.innerHTML = beCardHtml();     // nur diese Karte neu — Rest der Seite bleibt, wie er ist
+      bindChart();
+    };
+    if (sel) sel.addEventListener("change", () => {
+      state.chartKontext = sel.value; save();
+      neuZeichnen();
+      const neu = $("#chartctx"); if (neu) neu.focus();
+    });
+
+    /* Vergrößern: nur die BREITE des Rahmens wächst — das SVG ist width:100 %,
+       height:auto, also bleibt das Seitenverhältnis exakt erhalten. */
+    const vp = $("#chartzoom"), zval = $("#zoomval");
+    const setzeZoom = (z) => {
+      const alt = chartZoom;
+      chartZoom = Math.max(1, Math.min(4, Math.round(z * 100) / 100));
+      const mitte = vp ? (vp.scrollLeft + vp.clientWidth / 2) / Math.max(1, vp.scrollWidth) : 0.5;
+      box.style.width = (chartZoom * 100) + "%";
+      if (zval) zval.textContent = Math.round(chartZoom * 100) + " %";
+      if (vp && alt !== chartZoom) vp.scrollLeft = mitte * vp.scrollWidth - vp.clientWidth / 2;
+    };
+    setzeZoom(chartZoom);
+    $$("[data-zoom]").forEach(b => b.addEventListener("click", () => {
+      const d = +b.dataset.zoom;
+      setzeZoom(d === 0 ? 1 : chartZoom + d * 0.5);
+    }));
+    if (vp) {
+      let pinch = 0;
+      vp.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      }, { passive: true });
+      vp.addEventListener("touchmove", (e) => {
+        if (e.touches.length !== 2 || !pinch) return;
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (Math.abs(d - pinch) < 24) return;
+        setzeZoom(chartZoom * (d / pinch));
+        pinch = d;
+      }, { passive: true });
+      vp.addEventListener("touchend", () => { pinch = 0; });
+      vp.addEventListener("wheel", (e) => {
+        if (!e.ctrlKey) return;                       // sonst scrollt die Seite normal weiter
+        e.preventDefault();
+        setzeZoom(chartZoom + (e.deltaY < 0 ? 0.25 : -0.25));
+      }, { passive: false });
+    }
+
+    // Einheit umschalten (Akkuladungen / kWh / km) — Achse + Regler folgen
+    $$("#szen-eh [data-eh]").forEach(b => b.addEventListener("click", () => {
+      state.settings.szenEinheit = b.dataset.eh; save();
+      neuZeichnen();
+    }));
+
     // Was-wäre-wenn-Regler: live rechnen ohne Neuzeichnen der Seite
-    const sz = $("#szenario"), szOut = $("#szenario-out");
+    const sz = $("#szenario"), szOut = $("#szenario-out"), szWert = $("#szenario-wert");
     if (sz && szOut) {
+      const eh = szenEinheit();
+      const linie = $("#szenline", box);
       const zeig = () => {
-        const kw = +sz.value;
+        const kw = Math.min(c.maxKwh, +sz.value * eh.schrittKwh);
         const sortiert = c.auswahl.slice().sort((a, b) => (a.grund + a.preis * kw) - (b.grund + b.preis * kw));
-        szOut.innerHTML = `Bei <b>${kw} kWh/Monat</b>: ` + sortiert.slice(0, 3).map((l, i) =>
+        if (szWert) szWert.innerHTML = `${esc(eh.lang(kw))} <span class="muted small">= ${esc(szenAlle(kw).filter(x => x !== eh.lang(kw)).join(" = "))}</span>`;
+        szOut.innerHTML = sortiert.slice(0, 3).map((l, i) =>
           `${["🥇", "🥈", "🥉"][i]} ${esc(kurzName(l.tarif))} <b>${eur(l.grund + l.preis * kw, 0)}</b>`).join(" · ");
+        if (linie) {
+          const x = g.padL + (kw / c.maxKwh) * (g.W - g.padL - g.padR);
+          linie.setAttribute("x1", x); linie.setAttribute("x2", x);
+          linie.setAttribute("opacity", kw > 0 ? "0.45" : "0");
+        }
       };
       sz.addEventListener("input", zeig);
       zeig();
     }
   }
-  // Import-Datei
-  const imp = $("#importfile");
-  if (imp) imp.addEventListener("change", () => {
-    const file = imp.files[0]; if (!file) return;
-    const rd = new FileReader();
-    rd.onload = () => {
-      try {
-        const s = JSON.parse(rd.result);
-        if (!s.tarife || !s.orte) throw new Error("Format");
-        localStorage.setItem(LS_KEY, JSON.stringify(s));
-        loadState(); render();
-        alert("Daten importiert ✓");
-      } catch (e) { alert("Datei konnte nicht gelesen werden — ist das ein Export dieser App?"); }
-    };
-    rd.readAsText(file);
-  });
 }
 
 document.addEventListener("click", (e) => {
@@ -3506,11 +3966,15 @@ document.addEventListener("click", (e) => {
   if (act === "tarif-edit") { const b = $(`[data-editbox="${id}"]`); if (b) b.classList.toggle("hidden"); return; }
   if (act === "route-planen") { routePlanen(); return; }
   if (act === "suche-standort") { standortSuche(); return; }
-  if (act === "suche-adresse") { const inp = $("#suchadresse"); adresseSuche(inp ? inp.value.trim() : ""); return; }
+  if (act === "map-suche" || act === "suche-adresse") {
+    const inp = $("#mapsuche") || $("#suchadresse");
+    adresseSuche(inp ? inp.value.trim() : "");
+    return;
+  }
   if (act === "ort-saeulen") {
     const ort = state.orte.find(o => o.id === id);
     if (!ort || !(ort.adresse || "").trim()) { alert("Erst beim Ort eine Adresse eintragen — dann findet die App die Säulen dort."); return; }
-    state.tab = "laden"; save(); render();
+    state.tab = "laden"; mapSuchText = ort.adresse.trim(); mapScroll = true; save(); render();
     adresseSuche(ort.adresse.trim());
     return;
   }
@@ -3856,7 +4320,7 @@ setInterval(() => {
   if (state.ladeTimer && state.tab === "laden") render();
 }, 60000);
 // Routen-Karten an die Fensterbreite anpassen
-window.addEventListener("resize", skaliereKarten);
+window.addEventListener("resize", () => { skaliereKarten(); zeichneKarte(); });
 // Offline-Modus: Service Worker (nur über http/https, Datei liegt neben index.html)
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
   navigator.serviceWorker.register("sw.js").catch(() => { /* Datei fehlt (z. B. Artifact) — ok */ });

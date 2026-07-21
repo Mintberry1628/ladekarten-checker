@@ -1,0 +1,42 @@
+name: Ladesäulen-Register (monatlich, automatisch)
+
+on:
+  schedule:
+    - cron: "0 4 5 * *"    # am 5. jeden Monats, 04:00 UTC — die BNetzA veröffentlicht Anfang des Monats
+  workflow_dispatch: {}     # zusätzlich manuell startbar (Actions-Tab -> Run workflow)
+
+permissions:
+  contents: write
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Ladesäulenregister der Bundesnetzagentur holen und verdichten
+        run: node gen-saeulen.js
+
+      - name: Plausibilität prüfen (nie eine kaputte Datei committen)
+        run: |
+          node -e "
+          const d = require('./saeulen-de.json');
+          if (!Array.isArray(d.saeulen) || d.saeulen.length < 10000) throw new Error('Zu wenige Standorte: ' + (d.saeulen||[]).length);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(d.stand)) throw new Error('Kein gültiger Stand: ' + d.stand);
+          const hpc = d.saeulen.filter(s => s[2] >= 150).length;
+          if (hpc < 3000) throw new Error('Zu wenige Schnelllader: ' + hpc);
+          console.log('OK:', d.saeulen.length, 'Standorte,', hpc, 'davon >= 150 kW, Stand', d.stand);
+          "
+
+      - name: Änderungen committen
+        run: |
+          git config user.name "saeulen-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add saeulen-de.json
+          git diff --cached --quiet && echo "Keine Änderungen" && exit 0
+          git commit -m "Ladesäulenregister aktualisiert (Quelle: Bundesnetzagentur, CC BY 4.0)"
+          git push

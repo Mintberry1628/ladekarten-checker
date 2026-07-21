@@ -19,6 +19,7 @@ jobs:
           node --check src/data.js
           node --check src/sw.js
           node --check gen-tarife.js
+          node --check gen-saeulen.js
           node --check automation/update-tarife.mjs
           node --check automation/pruefe-tarife.mjs
       - name: tarife.json validieren

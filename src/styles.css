@@ -518,6 +518,24 @@ details:not(.grp):not(.strategie)[open] > summary::after { transform: rotate(180
 .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; font-size: .8rem; color: var(--ink2); }
 .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
 
+/* Diagramm vergrößern: der Rahmen scrollt, das SVG behält sein Seitenverhältnis
+   (Breite in %, Höhe auto) — dadurch verzerrt Zoomen die Kurven nie. */
+.chartzoom { overflow: auto; overscroll-behavior-x: contain; border-radius: 12px; }
+.chartzoom > .chartbox { margin-top: 0; }
+.zoomctl { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.zoomctl .zval { font-size: .8rem; font-weight: 700; color: var(--ink2); font-variant-numeric: tabular-nums; min-width: 52px; text-align: center; }
+
+/* Einheiten-Umschalter (Akkuladungen / kWh / km) */
+.seg { display: flex; gap: 3px; background: var(--card2); border: 1px solid var(--edge); border-radius: 12px; padding: 3px; margin-top: 5px; }
+.seg button {
+  flex: 1 1 0; min-width: 0; appearance: none; cursor: pointer; font-family: inherit;
+  font-size: .84rem; font-weight: 640; color: var(--ink2); background: transparent;
+  border: 0; border-radius: 9px; padding: 9px 6px; min-height: 38px;
+  transition: background .14s, color .14s;
+}
+.seg button.on { background: var(--card); color: var(--ink); box-shadow: var(--shadow-sm); }
+.szenwert { font-size: 1.08rem; font-weight: 700; margin: 10px 0 2px; font-variant-numeric: tabular-nums; }
+
 /* Balkendiagramm (Trip-Kosten) — als aufklappbare Empfehlungs-Zeilen */
 .hbars { display: grid; gap: 9px; margin-top: 12px; }
 details.strategie { border: 0; margin: 0; padding: 0; }
@@ -532,6 +550,59 @@ details.strategie .sdetail { padding: 8px 2px 13px; border-bottom: 1px dashed va
 .mapwrap { position: relative; overflow: hidden; border-radius: 12px; border: 1px solid var(--edge); margin-top: 12px; background: var(--card2); }
 .mapcanvas { position: relative; transform-origin: 0 0; }
 .mapattrib { position: absolute; right: 6px; bottom: 4px; background: rgba(255,255,255,.78); color: #333; padding: 0 5px; border-radius: 4px; font-size: 9.5px; }
+
+/* ---------- Säulen-Karte: Karte + Liste (Google-Maps-Prinzip) ---------- */
+.geo { margin-top: 12px; }
+.geosearch { display: flex; flex-wrap: wrap; gap: 8px; }
+.geosearch input[type="text"] { flex: 3 1 190px; }
+.geosearch select { flex: 1 1 140px; width: auto; }
+.geosearch .btn { flex: 0 0 auto; }
+.lkmap {
+  position: relative; margin-top: 10px; height: min(44vh, 390px); min-height: 265px;
+  border-radius: 14px; border: 1px solid var(--edge); overflow: hidden;
+  background: var(--card2); touch-action: none; user-select: none; cursor: grab;
+}
+.lkmap.drag { cursor: grabbing; }
+.lktiles, .lkpins { position: absolute; inset: 0; }
+.lktiles img { position: absolute; width: 256px; height: 256px; pointer-events: none; }
+.lkpins { pointer-events: none; }
+.lkpin {
+  position: absolute; transform: translate(-50%, -100%); pointer-events: auto;
+  appearance: none; cursor: pointer; font-family: inherit; font-size: .72rem; font-weight: 750; line-height: 1;
+  color: #fff; background: #74849A; border: 1.5px solid rgba(255,255,255,.9);
+  border-radius: 9px 9px 9px 3px; padding: 5px 7px; white-space: nowrap;
+  box-shadow: 0 2px 7px rgba(6, 12, 22, .45);
+}
+/* Leistungs-Stufen: grau → grün → blau → violett → Neon (je heller, desto schneller) */
+.lkpin.kw50 { background: #0B8A34; }
+.lkpin.kw150 { background: #2A6FE0; }
+.lkpin.kw250 { background: #8B5CF6; }
+.lkpin.kw350 { background: linear-gradient(135deg, #35B8F7 0%, #5B70F0 55%, #8B5CF6 100%); }
+.lkpin.kaputt { background: #C42F2F; }
+.lklegend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 2px; font-size: .74rem; color: var(--ink2); }
+.lklegend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.lklegend i { width: 11px; height: 11px; border-radius: 3px; border: 1px solid rgba(255,255,255,.55); }
+.lkpin.on { transform: translate(-50%, -100%) scale(1.16); z-index: 6; border-color: #fff; box-shadow: 0 0 0 3px rgba(91,112,240,.45), 0 3px 10px rgba(6,12,22,.5); }
+.lkme { position: absolute; width: 15px; height: 15px; margin: -7px 0 0 -7px; border-radius: 50%; background: #1a73e8; border: 2.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
+.lkctl { position: absolute; right: 9px; top: 9px; display: flex; flex-direction: column; gap: 6px; }
+.lkctl button {
+  width: 40px; height: 40px; appearance: none; cursor: pointer; font-family: inherit;
+  font-size: 1.15rem; font-weight: 700; color: var(--ink); background: var(--card);
+  border: 1px solid var(--edge); border-radius: 11px; box-shadow: var(--shadow-sm);
+}
+.lkhier { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 4; }
+.geolist { margin-top: 10px; }
+.station { scroll-margin-top: 12px; }
+.station.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow); }
+@media (min-width: 900px) {
+  .geo.split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; align-items: start; }
+  .geo.split .geosearch { grid-column: 1 / -1; }
+  .geo.split .lkmap { height: 540px; margin-top: 0; position: sticky; top: 12px; }
+  .geo.split .geolist { max-height: 540px; overflow: auto; margin-top: 0; padding-right: 4px; }
+}
+@media (prefers-color-scheme: dark) { .lktiles { filter: invert(1) hue-rotate(180deg) brightness(.94) contrast(.9); } }
+:root[data-theme="dark"] .lktiles { filter: invert(1) hue-rotate(180deg) brightness(.94) contrast(.9); }
+:root[data-theme="light"] .lktiles { filter: none; }
 .hbar .top { display: flex; justify-content: space-between; gap: 10px; font-size: .86rem; margin-bottom: 4px; }
 .hbar .top .val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hbar .track { background: var(--card3); border-radius: 5px; height: 14px; overflow: hidden; }

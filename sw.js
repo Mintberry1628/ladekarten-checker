@@ -1,6 +1,6 @@
 /* Service Worker — macht die App offline-fähig (Bosnien!).
    Wird von build.sh mit Build-Stempel versehen; alte Caches räumen sich selbst auf. */
-const CACHE = "lkc-20260721064039";
+const CACHE = "lkc-20260721213919";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -34,7 +34,7 @@ self.addEventListener("fetch", (e) => {
   }
   // Andere externe Dienste (OCM, OSRM, Nominatim, Open-Meteo, GitHub): immer Netz, nie cachen
   if (url.origin !== self.location.origin) return;
-  // App-Shell & tarife.json: Netz zuerst (frisch), bei Offline aus dem Cache
+  // App-Shell, tarife.json & saeulen-de.json: Netz zuerst (frisch), bei Offline aus dem Cache
   e.respondWith(
     fetch(e.request)
       .then(r => {

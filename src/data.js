@@ -305,10 +305,12 @@ const LADEKURVE = [
   [90, 100, 40],
 ];
 
-/* ---------- Betreiber-Erkennung (OpenChargeMap → unsere Netze) ---------- */
+/* ---------- Betreiber-Erkennung (OpenChargeMap + BNetzA-Register → unsere Netze) ----------
+   Das amtliche Register schreibt die Firmennamen aus („BP Europa SE“ statt „Aral pulse“) —
+   deshalb stehen hier beide Schreibweisen. */
 const OPERATOR_MAP = [
   { netz: "enbw", muster: ["enbw"] },
-  { netz: "aral", muster: ["aral", "bp pulse"] },
+  { netz: "aral", muster: ["aral", "bp pulse", "bp europa"] },
   { netz: "ionity", muster: ["ionity"] },
   { netz: "tesla", muster: ["tesla"] },
   { netz: "swm", muster: ["stadtwerke münchen", "stadtwerke muenchen", "swm"] },
