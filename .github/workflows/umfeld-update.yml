@@ -1,0 +1,84 @@
+name: Umfeld vorberechnen (monatlich, automatisch)
+
+# Rechnet für jeden Ladestandort einmal im Monat aus, was im 700-m-Umkreis liegt
+# (Essen, WC, Supermarkt, Spielplatz). Die App lädt danach nur noch eine fertige
+# Datei statt bei jedem Stopp Overpass zu fragen — das dauerte 2–40 s pro Standort.
+# Quelle: OpenStreetMap-Länderauszüge von Geofabrik (ODbL).
+
+on:
+  schedule:
+    - cron: "0 5 6 * *"     # am 6. jeden Monats, einen Tag nach dem Säulen-Register
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "gen-umfeld.js"      # Änderungen am Generator sofort durchrechnen
+      - ".github/workflows/umfeld-update.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  umfeld:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: osmium installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+
+      - name: Länderauszüge holen, filtern und wieder wegwerfen
+        run: |
+          set -e
+          # Deutschland + die Länder auf der Balkan-Route. Jeder Auszug wird sofort
+          # nach dem Filtern gelöscht, damit die Platte des Runners nicht volläuft.
+          for land in europe/germany europe/austria europe/slovenia europe/croatia europe/bosnia-herzegovina; do
+            name=$(basename $land)
+            echo "::group::$name"
+            curl -sSL -o roh.osm.pbf "https://download.geofabrik.de/${land}-latest.osm.pbf"
+            ls -lh roh.osm.pbf
+            # Die vier Umfeld-Kategorien
+            osmium tags-filter roh.osm.pbf \
+              nwr/amenity=restaurant,fast_food,cafe,toilets \
+              nwr/shop=supermarket,convenience,bakery \
+              nwr/leisure=playground \
+              -o pois-$name.osm.pbf --overwrite
+            # Ankerpunkte im Ausland: Ladestationen aus OpenStreetMap
+            if [ "$name" != "germany" ]; then
+              osmium tags-filter roh.osm.pbf nwr/amenity=charging_station -o lader-$name.osm.pbf --overwrite
+              osmium export lader-$name.osm.pbf -f geojsonseq -o lader-$name.geojsonseq --overwrite
+              rm -f lader-$name.osm.pbf
+            fi
+            osmium export pois-$name.osm.pbf -f geojsonseq -o pois-$name.geojsonseq --overwrite
+            rm -f roh.osm.pbf pois-$name.osm.pbf
+            echo "::endgroup::"
+          done
+          cat pois-*.geojsonseq > pois-alle.geojsonseq
+          rm -f pois-*.geojsonseq
+          ls -lh pois-alle.geojsonseq lader-*.geojsonseq
+
+      - name: Umfeld je Ladestandort berechnen
+        run: node gen-umfeld.js pois-alle.geojsonseq lader-austria.geojsonseq lader-slovenia.geojsonseq lader-croatia.geojsonseq lader-bosnia-herzegovina.geojsonseq
+
+      - name: Plausibilität prüfen (nie eine kaputte Datei committen)
+        run: |
+          node -e "
+          const d = require('./umfeld-de.json');
+          if (!Array.isArray(d.punkte) || d.punkte.length < 12000) throw new Error('Zu wenige Standorte: ' + (d.punkte||[]).length);
+          const mit = d.punkte.filter(p => p[2] || p[3] || p[4] || p[5]).length;
+          if (mit / d.punkte.length < 0.4) throw new Error('Verdächtig wenige Treffer: ' + Math.round(mit/d.punkte.length*100) + ' %');
+          console.log('OK:', d.punkte.length, 'Standorte,', Math.round(mit/d.punkte.length*100), '% mit Treffern,', d.namen.length, 'Namen');
+          "
+
+      - name: Änderungen committen
+        run: |
+          git config user.name "umfeld-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add umfeld-de.json
+          git diff --cached --quiet && echo "Keine Änderungen" && exit 0
+          git commit -m "Umfeld je Ladestandort neu berechnet (Quelle: OpenStreetMap, ODbL)"
+          git push

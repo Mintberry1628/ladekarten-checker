@@ -510,16 +510,69 @@ let umfeldFehler = null;         // { k, text } — nur vorübergehend, nie gesp
 const umfeldGescheitert = new Set();  // Standorte, die in dieser Sitzung nicht klappten
 
 const umfeldKey = (lat, lng) => (+lat).toFixed(3) + "," + (+lng).toFixed(3);
+
+/* ---------- Vorberechnetes Umfeld-Paket ----------
+   Für jeden Ladestandort in DE/AT/SI/HR/BA ist längst ausgerechnet, was im
+   700-m-Umkreis liegt (monatlich in der GitHub-Action, siehe gen-umfeld.js).
+   Damit erscheint das Umfeld sofort statt nach 2–40 s Overpass-Warterei — und
+   funktioniert offline. Live gefragt wird nur noch, was das Paket nicht kennt. */
+let umfeldPaket = null;
+let umfeldPaketLauf = null;
+const UMFELD_PAKET_QUELLEN = [
+  "umfeld-de.json",
+  "https://mintberry.org/local/ladekarten/umfeld-de.json",
+  "https://raw.githubusercontent.com/Mintberry1628/ladekarten-checker/main/umfeld-de.json",
+];
+function ladeUmfeldPaket() {
+  if (umfeldPaket) return Promise.resolve(umfeldPaket);
+  if (umfeldPaketLauf) return umfeldPaketLauf;
+  umfeldPaketLauf = (async () => {
+    for (const u of UMFELD_PAKET_QUELLEN) {
+      try {
+        const r = await fetchMitTimeout(u, 15000);
+        if (!r || !r.ok) continue;
+        const js = await r.json();
+        if (js && Array.isArray(js.punkte) && js.punkte.length) { umfeldPaket = js; return js; }
+      } catch (e) { /* nächste Quelle */ }
+    }
+    return null;               // ohne Paket bleibt die Live-Abfrage
+  })();
+  return umfeldPaketLauf;
+}
+// Nächstgelegener vorberechneter Standort (OCM-Säulen liegen oft ein paar Meter
+// neben dem Register-Standort — deshalb 300 m Toleranz statt exakter Treffer)
+function umfeldAusPaket(lat, lng) {
+  if (!umfeldPaket) return null;
+  const p = umfeldPaket.punkte, dLat = 0.004;      // ~450 m Suchfenster
+  let lo = 0, hi = p.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (p[m][0] < lat - dLat) lo = m + 1; else hi = m; }
+  let best = null, bestD = 0.3;                    // Treffer nur bis 300 m
+  for (let i = lo; i < p.length && p[i][0] <= lat + dLat; i++) {
+    const d = haversineKm(lat, lng, p[i][0], p[i][1]);
+    if (d < bestD) { bestD = d; best = p[i]; }
+  }
+  if (!best) return null;
+  const name = (i) => (i >= 0 ? umfeldPaket.namen[i] : null);
+  const fuellen = (anz, n, ersatz) => anz ? [n || ersatz].concat(Array(Math.min(anz, 4) - 1).fill(ersatz)).slice(0, Math.min(anz, 4)) : [];
+  return {
+    essen: fuellen(best[2], name(best[6]), "Essen"), essenAnz: best[2],
+    wc: best[3],
+    markt: fuellen(best[4], name(best[7]), "Markt"), marktAnz: best[4],
+    spiel: best[5],
+    stand: umfeldPaket.stand, quelle: "paket",
+  };
+}
 function umfeldAusCache(lat, lng) {
   if (lat == null || lng == null) return null;
   const c = (state.umfeldCache || {})[umfeldKey(lat, lng)];
-  if (!c || !c.stand) return null;
-  if ((Date.now() - new Date(c.stand + "T12:00:00")) / 864e5 > UMFELD_TAGE) return null;
-  return c;
+  if (c && c.stand && (Date.now() - new Date(c.stand + "T12:00:00")) / 864e5 <= UMFELD_TAGE) return c;
+  return umfeldAusPaket(+lat, +lng);
 }
-// Holt das Umfeld (aus dem Cache sofort, sonst über die Warteschlange)
-function umfeldHolen(lat, lng) {
-  const treffer = umfeldAusCache(lat, lng);
+// Holt das Umfeld: Paket/Cache sofort, sonst live über die Warteschlange.
+// frisch = true erzwingt eine Live-Abfrage („Umfeld neu laden“).
+async function umfeldHolen(lat, lng, frisch) {
+  if (!umfeldPaket && !frisch) await ladeUmfeldPaket();
+  const treffer = frisch ? null : umfeldAusCache(lat, lng);
   if (treffer) return Promise.resolve(treffer);
   const k = umfeldKey(lat, lng);
   const schon = umfeldWarte.find(a => a.k === k);
@@ -636,12 +689,13 @@ function umfeldAuswerten(js) {
     if (t.leisure === "playground") z.spiel++;
   }
   return {
-    essen: [...new Set(z.essen)].slice(0, 4), wc: z.wc,
-    markt: [...new Set(z.markt)].slice(0, 3), spiel: z.spiel, stand: heute(),
+    essen: [...new Set(z.essen)].slice(0, 4), essenAnz: z.essen.length, wc: z.wc,
+    markt: [...new Set(z.markt)].slice(0, 3), marktAnz: z.markt.length,
+    spiel: z.spiel, stand: heute(), quelle: "live",
   };
 }
 // Knopf „Was gibt's hier?“ an Stopp oder Säule
-function stoppUmfeld(st) { umfeldHolen(st.lat, st.lng); }
+function stoppUmfeld(st, frisch) { umfeldHolen(st.lat, st.lng, frisch); }
 
 // Länder-Check einer Karten-Empfehlung: Wo auf der Route gilt sie, wo nicht?
 function laenderCheck(k, trip) {
@@ -3690,11 +3744,13 @@ function umfeldZeile(st) {
   const wartet = umfeldWarte.some(a => a.k === umfeldKey(st.lat, st.lng));
   if (laeuft || wartet) return `<div class="meta"><span class="pill">${laeuft ? "⏳ schaut nach, was hier ist …" : "… in der Warteschlange"}</span></div>`;
   if (!u) return "";
-  const leer = !(u.essen || []).length && !u.wc && !(u.markt || []).length && !u.spiel;
+  const essenAnz = u.essenAnz || (u.essen || []).length;
+  const marktAnz = u.marktAnz || (u.markt || []).length;
+  const leer = !essenAnz && !u.wc && !marktAnz && !u.spiel;
   return `<div class="meta">
-    ${(u.essen || []).length ? `<span class="pill">🍔 ${u.essen.length}× Essen (${esc(u.essen[0])}${u.essen.length > 1 ? " …" : ""})</span>` : ""}
-    ${u.wc ? '<span class="pill">🚻 WC</span>' : ""}
-    ${(u.markt || []).length ? `<span class="pill">🛒 ${esc(u.markt[0])}</span>` : ""}
+    ${essenAnz ? `<span class="pill">🍔 ${essenAnz}× Essen (${esc((u.essen || [])[0] || "Essen")}${essenAnz > 1 ? " …" : ""})</span>` : ""}
+    ${u.wc ? `<span class="pill">🚻 ${u.wc > 1 ? u.wc + "× " : ""}WC</span>` : ""}
+    ${marktAnz ? `<span class="pill">🛒 ${esc((u.markt || [])[0] || "Supermarkt")}${marktAnz > 1 ? " +" + (marktAnz - 1) : ""}</span>` : ""}
     ${u.spiel ? '<span class="pill">🛝 Spielplatz</span>' : ""}
     ${leer ? `<span class="pill">im ${UMFELD_RADIUS}-m-Umkreis ist in OpenStreetMap nichts eingetragen</span>` : ""}
   </div>`;
@@ -3800,6 +3856,11 @@ function bindDynamic() {
   zaehleHoch();
   bindChart();
   bindKarte();
+  // Vorberechnetes Umfeld einmal im Hintergrund holen — danach stehen die
+  // Umfeld-Zeilen sofort da, ohne dass irgendwo „sucht …“ erscheint
+  if (!umfeldPaket && !umfeldPaketLauf && (state.letzteSuche || (state.trips || []).some(t => (t.stopps || []).length))) {
+    ladeUmfeldPaket().then(p => { if (p) render(); });
+  }
   // Import-Datei
   const imp = $("#importfile");
   if (imp) imp.addEventListener("change", () => {
@@ -3979,14 +4040,19 @@ document.addEventListener("click", (e) => {
     const trU = state.trips.find(t => t.id === btn.dataset.trip);
     const stU = trU && (trU.stopps || []).find(x => x.id === id);
     if (stU) {
-      if (btn.textContent.includes("neu laden") && state.umfeldCache) delete state.umfeldCache[umfeldKey(stU.lat, stU.lng)];
-      stoppUmfeld(stU);
+      const frisch = btn.textContent.includes("neu laden");
+      if (frisch && state.umfeldCache) delete state.umfeldCache[umfeldKey(stU.lat, stU.lng)];
+      stoppUmfeld(stU, frisch);
     }
     return;
   }
   if (act === "saeule-umfeld") {
     const stS = findeStation(id);
-    if (stS) stoppUmfeld(stS);
+    if (stS) {
+      const frisch = btn.textContent.includes("neu laden");
+      if (frisch && state.umfeldCache) delete state.umfeldCache[umfeldKey(stS.lat, stS.lng)];
+      stoppUmfeld(stS, frisch);
+    }
     return;
   }
   if (act === "stopp-filter") {
