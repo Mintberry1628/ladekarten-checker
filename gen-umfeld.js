@@ -56,13 +56,20 @@ const anzeigeName = (t, kat) => t.name || (kat === "essen"
   : ({ supermarket: "Supermarkt", convenience: "Kiosk", bakery: "Bäckerei" })[t.shop] || "Markt");
 
 async function zeilenLesen(datei, jeZeile) {
+  // Achtung: „GeoJSON Text Sequence“ (RFC 8142) stellt JEDER Zeile das
+  // Trennzeichen RS (0x1E) voran — genau daran ist der erste Cloud-Lauf
+  // gescheitert (0 POIs gelesen, Berechnung nach 1 Sekunde fertig).
   const rl = readline.createInterface({ input: fs.createReadStream(datei), crlfDelay: Infinity });
-  for await (const z of rl) {
-    if (!z || z[0] !== "{") continue;
+  let gelesen = 0, uebersprungen = 0;
+  for await (const roh of rl) {
+    const z = (roh || "").replace(/^[\x1e\s]+/, "");
+    if (!z || z[0] !== "{") { if (roh && roh.trim()) uebersprungen++; continue; }
     let g;
-    try { g = JSON.parse(z); } catch (e) { continue; }   // osmium schreibt gelegentlich Steuerzeilen
+    try { g = JSON.parse(z); } catch (e) { uebersprungen++; continue; }
+    gelesen++;
     jeZeile(g);
   }
+  return { gelesen, uebersprungen };
 }
 
 async function main() {
@@ -80,8 +87,8 @@ async function main() {
   }
   for (const d of ankerDateien) {
     let n = 0;
-    await zeilenLesen(d, (g) => { const p = punkt(g.geometry); if (p) { anker.push(p); n++; } });
-    console.log("Ankerpunkte (Ladestationen) aus", path.basename(d) + ":", n);
+    const st = await zeilenLesen(d, (g) => { const p = punkt(g.geometry); if (p) { anker.push(p); n++; } });
+    console.log("Ankerpunkte (Ladestationen) aus", path.basename(d) + ":", n, `(${st.gelesen} Objekte gelesen, ${st.uebersprungen} übersprungen)`);
   }
   // Doppelte Anker (gleicher Standort) zusammenfassen — 60-m-Raster
   const gesehen = new Set();
@@ -95,7 +102,7 @@ async function main() {
   // 2) POIs streamend einlesen und ins Raster einsortieren
   const raster = new Map();
   let poiAnz = 0;
-  await zeilenLesen(poiDatei, (g) => {
+  const poiStat = await zeilenLesen(poiDatei, (g) => {
     const kat = kategorie(g.properties);
     if (!kat) return;
     const p = punkt(g.geometry);
@@ -105,7 +112,9 @@ async function main() {
     if (!raster.has(k)) raster.set(k, []);
     raster.get(k).push([p[0], p[1], kat, kat === "wc" || kat === "spiel" ? "" : anzeigeName(g.properties, kat)]);
   });
-  console.log("POIs eingelesen:", poiAnz, "in", raster.size, "Rasterzellen");
+  console.log("POIs eingelesen:", poiAnz, "in", raster.size, "Rasterzellen",
+    `(${poiStat.gelesen} Objekte gelesen, ${poiStat.uebersprungen} übersprungen)`);
+  if (!poiAnz) throw new Error("Keine POIs erkannt — Eingabeformat prüfen (GeoJSON-Zeilen mit RS-Trennzeichen?)");
 
   // 3) Für jeden Ankerpunkt zählen, was im 700-m-Umkreis liegt
   const namen = [], nIdx = new Map();
