@@ -102,6 +102,8 @@ async function main() {
   // 2) POIs streamend einlesen und ins Raster einsortieren
   const raster = new Map();
   let poiAnz = 0, doppelt = 0;
+  const probe = [];
+  const jeKategorie = { essen: 0, wc: 0, markt: 0, spiel: 0 };
   /* Wichtig: osmium export schreibt einen geschlossenen Weg ZWEIMAL — einmal als
      Linie, einmal als Fläche. Ungefiltert zählte Laim dadurch 94 statt echten 59
      Spielplätzen. Entdoppelt wird über die OSM-Objekt-ID (@id, kommt per
@@ -112,11 +114,15 @@ async function main() {
     if (!kat) return;
     const p = punkt(g.geometry);
     if (!p) return;
-    const id = g.properties["@id"] || g.id;
-    const schluessel = id ? "id:" + id : kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
+    // Die ersten Objekte als Probe aufheben: die Action-Logs sind ohne GitHub-Login
+    // nicht lesbar, deshalb wandert die Diagnose in die erzeugte Datei.
+    if (probe.length < 3) probe.push({ id: g.id, eigenschaften: Object.keys(g.properties).slice(0, 8), geometrie: g.geometry.type });
+    const id = g.properties["@id"] || g.properties["@type_id"] || g.id;
+    const schluessel = id != null ? "id:" + id : kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
     if (schonDa.has(schluessel)) { doppelt++; return; }
     schonDa.add(schluessel);
     poiAnz++;
+    jeKategorie[kat]++;
     const k = zelle(p[0], p[1]);
     if (!raster.has(k)) raster.set(k, []);
     raster.get(k).push([p[0], p[1], kat, kat === "wc" || kat === "spiel" ? "" : anzeigeName(g.properties, kat)]);
@@ -162,6 +168,12 @@ async function main() {
     stand: new Date().toISOString().slice(0, 10),
     radius: RADIUS_M,
     felder: ["lat", "lng", "essen", "wc", "markt", "spiel", "essenNameIdx", "marktNameIdx"],
+    // Diagnose (klein, aber Gold wert): die Action-Logs sind ohne Login nicht
+    // lesbar — so steht in der Datei selbst, womit sie gebaut wurde.
+    statistik: {
+      objekteGelesen: poiStat.gelesen, doppelteVerworfen: doppelt, uebersprungen: poiStat.uebersprungen,
+      poisGezaehlt: poiAnz, jeKategorie, probe,
+    },
     namen,
     punkte,
   };
