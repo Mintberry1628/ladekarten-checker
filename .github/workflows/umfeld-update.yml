@@ -33,36 +33,54 @@ jobs:
 
       - name: Länderauszüge holen, filtern und wieder wegwerfen
         run: |
-          set -e
-          # Deutschland + die Länder auf der Balkan-Route. Jeder Auszug wird sofort
-          # nach dem Filtern gelöscht, damit die Platte des Runners nicht volläuft.
-          for land in europe/germany europe/austria europe/slovenia europe/croatia europe/bosnia-herzegovina; do
+          # Kleine Länder zuerst, Deutschland zuletzt: bricht etwas ab, ist die
+          # Werkzeugkette schon an einem 150-MB-Auszug geprüft statt an 4 GB.
+          # Jeder Schritt meldet seinen Fehler als GitHub-Annotation (die ist auch
+          # ohne Login lesbar) — sonst tappt man bei einem Fehlschlag im Dunkeln.
+          lauf() {
+            beschreibung="$1"; shift
+            if ! "$@" > schritt.log 2>&1; then
+              echo "::error::$beschreibung fehlgeschlagen (Code $?): $(tail -c 600 schritt.log | tr '\n' ' ')"
+              df -h / | tail -1
+              exit 1
+            fi
+          }
+          for land in europe/bosnia-herzegovina europe/slovenia europe/croatia europe/austria europe/germany; do
             name=$(basename $land)
             echo "::group::$name"
-            curl -sSL -o roh.osm.pbf "https://download.geofabrik.de/${land}-latest.osm.pbf"
+            lauf "Download $name" curl -sSLf --retry 3 -o roh.osm.pbf "https://download.geofabrik.de/${land}-latest.osm.pbf"
             ls -lh roh.osm.pbf
-            # Die vier Umfeld-Kategorien
-            osmium tags-filter roh.osm.pbf \
+            # Die vier Umfeld-Kategorien. -t/--remove-tags nicht nötig, aber die
+            # referenzierten Knoten müssen drinbleiben, sonst fehlen den Flächen
+            # (Restaurants sind meist Gebäude) später die Koordinaten.
+            lauf "Filter POIs $name" osmium tags-filter roh.osm.pbf \
               nwr/amenity=restaurant,fast_food,cafe,toilets \
               nwr/shop=supermarket,convenience,bakery \
               nwr/leisure=playground \
               -o pois-$name.osm.pbf --overwrite
             # Ankerpunkte im Ausland: Ladestationen aus OpenStreetMap
             if [ "$name" != "germany" ]; then
-              osmium tags-filter roh.osm.pbf nwr/amenity=charging_station -o lader-$name.osm.pbf --overwrite
-              osmium export lader-$name.osm.pbf -f geojsonseq -o lader-$name.geojsonseq --overwrite
+              lauf "Filter Lader $name" osmium tags-filter roh.osm.pbf nwr/amenity=charging_station -o lader-$name.osm.pbf --overwrite
+              lauf "Export Lader $name" osmium export lader-$name.osm.pbf -f geojsonseq -o lader-$name.geojsonseq --overwrite
               rm -f lader-$name.osm.pbf
             fi
-            osmium export pois-$name.osm.pbf -f geojsonseq -o pois-$name.geojsonseq --overwrite
+            lauf "Export POIs $name" osmium export pois-$name.osm.pbf -f geojsonseq -o pois-$name.geojsonseq --overwrite
             rm -f roh.osm.pbf pois-$name.osm.pbf
+            wc -l pois-$name.geojsonseq
+            df -h / | tail -1
             echo "::endgroup::"
           done
           cat pois-*.geojsonseq > pois-alle.geojsonseq
-          rm -f pois-*.geojsonseq
+          rm -f pois-bosnia-herzegovina.geojsonseq pois-slovenia.geojsonseq pois-croatia.geojsonseq pois-austria.geojsonseq pois-germany.geojsonseq
           ls -lh pois-alle.geojsonseq lader-*.geojsonseq
 
       - name: Umfeld je Ladestandort berechnen
-        run: node gen-umfeld.js pois-alle.geojsonseq lader-austria.geojsonseq lader-slovenia.geojsonseq lader-croatia.geojsonseq lader-bosnia-herzegovina.geojsonseq
+        run: |
+          if ! node --max-old-space-size=6144 gen-umfeld.js pois-alle.geojsonseq lader-*.geojsonseq > rechnen.log 2>&1; then
+            echo "::error::Berechnung fehlgeschlagen: $(tail -c 600 rechnen.log | tr '\n' ' ')"
+            exit 1
+          fi
+          cat rechnen.log
 
       - name: Plausibilität prüfen (nie eine kaputte Datei committen)
         run: |
