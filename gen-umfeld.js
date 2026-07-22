@@ -101,19 +101,27 @@ async function main() {
 
   // 2) POIs streamend einlesen und ins Raster einsortieren
   const raster = new Map();
-  let poiAnz = 0;
+  let poiAnz = 0, doppelt = 0;
+  /* Wichtig: osmium export schreibt einen geschlossenen Weg ZWEIMAL — einmal als
+     Linie, einmal als Fläche. Ungefiltert zählte Laim dadurch 94 statt 59
+     Spielplätze (genau +35 = Anzahl der Wege). Deshalb: gleiche Kategorie an
+     derselben Koordinate nur einmal zählen. */
+  const schonDa = new Set();
   const poiStat = await zeilenLesen(poiDatei, (g) => {
     const kat = kategorie(g.properties);
     if (!kat) return;
     const p = punkt(g.geometry);
     if (!p) return;
+    const schluessel = kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
+    if (schonDa.has(schluessel)) { doppelt++; return; }
+    schonDa.add(schluessel);
     poiAnz++;
     const k = zelle(p[0], p[1]);
     if (!raster.has(k)) raster.set(k, []);
     raster.get(k).push([p[0], p[1], kat, kat === "wc" || kat === "spiel" ? "" : anzeigeName(g.properties, kat)]);
   });
   console.log("POIs eingelesen:", poiAnz, "in", raster.size, "Rasterzellen",
-    `(${poiStat.gelesen} Objekte gelesen, ${poiStat.uebersprungen} übersprungen)`);
+    `(${poiStat.gelesen} Objekte gelesen, ${doppelt} Doppelgeometrien verworfen, ${poiStat.uebersprungen} übersprungen)`);
   if (!poiAnz) throw new Error("Keine POIs erkannt — Eingabeformat prüfen (GeoJSON-Zeilen mit RS-Trennzeichen?)");
 
   // 3) Für jeden Ankerpunkt zählen, was im 700-m-Umkreis liegt
