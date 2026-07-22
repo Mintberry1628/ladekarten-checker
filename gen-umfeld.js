@@ -103,16 +103,17 @@ async function main() {
   const raster = new Map();
   let poiAnz = 0, doppelt = 0;
   /* Wichtig: osmium export schreibt einen geschlossenen Weg ZWEIMAL — einmal als
-     Linie, einmal als Fläche. Ungefiltert zählte Laim dadurch 94 statt 59
-     Spielplätze (genau +35 = Anzahl der Wege). Deshalb: gleiche Kategorie an
-     derselben Koordinate nur einmal zählen. */
+     Linie, einmal als Fläche. Ungefiltert zählte Laim dadurch 94 statt echten 59
+     Spielplätzen. Entdoppelt wird über die OSM-Objekt-ID (@id, kommt per
+     --add-unique-id=type_id aus osmium); fehlt sie, hilfsweise über Koordinaten. */
   const schonDa = new Set();
   const poiStat = await zeilenLesen(poiDatei, (g) => {
     const kat = kategorie(g.properties);
     if (!kat) return;
     const p = punkt(g.geometry);
     if (!p) return;
-    const schluessel = kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
+    const id = g.properties["@id"] || g.id;
+    const schluessel = id ? "id:" + id : kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
     if (schonDa.has(schluessel)) { doppelt++; return; }
     schonDa.add(schluessel);
     poiAnz++;

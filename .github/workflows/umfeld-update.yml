@@ -53,10 +53,13 @@ jobs:
             # Die vier Umfeld-Kategorien. -t/--remove-tags nicht nötig, aber die
             # referenzierten Knoten müssen drinbleiben, sonst fehlen den Flächen
             # (Restaurants sind meist Gebäude) später die Koordinaten.
+            # Nur Knoten und Wege (nw), keine Relationen: eine Relation und ihre
+            # Mitglieds-Wege beschreiben denselben Spielplatz und wurden sonst
+            # mehrfach gezählt (Laim: 94 statt 59).
             lauf "Filter POIs $name" osmium tags-filter roh.osm.pbf \
-              nwr/amenity=restaurant,fast_food,cafe,toilets \
-              nwr/shop=supermarket,convenience,bakery \
-              nwr/leisure=playground \
+              nw/amenity=restaurant,fast_food,cafe,toilets \
+              nw/shop=supermarket,convenience,bakery \
+              nw/leisure=playground \
               -o pois-$name.osm.pbf --overwrite
             # Ankerpunkte im Ausland: Ladestationen aus OpenStreetMap
             if [ "$name" != "germany" ]; then
@@ -64,7 +67,10 @@ jobs:
               lauf "Export Lader $name" osmium export lader-$name.osm.pbf -f geojsonseq -o lader-$name.geojsonseq --overwrite
               rm -f lader-$name.osm.pbf
             fi
-            lauf "Export POIs $name" osmium export pois-$name.osm.pbf -f geojsonseq -o pois-$name.geojsonseq --overwrite
+            # --add-unique-id: schreibt die OSM-Objekt-ID mit. osmium export gibt
+            # einen geschlossenen Weg zweimal aus (Linie + Fläche) — mit der ID
+            # erkennt der Generator das sicher, statt über Koordinaten zu raten.
+            lauf "Export POIs $name" osmium export pois-$name.osm.pbf -f geojsonseq --add-unique-id=type_id -o pois-$name.geojsonseq --overwrite
             rm -f roh.osm.pbf pois-$name.osm.pbf
             wc -l pois-$name.geojsonseq
             df -h / | tail -1
