@@ -67,10 +67,13 @@ jobs:
               lauf "Export Lader $name" osmium export lader-$name.osm.pbf -f geojsonseq -o lader-$name.geojsonseq --overwrite
               rm -f lader-$name.osm.pbf
             fi
-            # --add-unique-id: schreibt die OSM-Objekt-ID mit. osmium export gibt
-            # einen geschlossenen Weg zweimal aus (Linie + Fläche) — mit der ID
-            # erkennt der Generator das sicher, statt über Koordinaten zu raten.
-            lauf "Export POIs $name" osmium export pois-$name.osm.pbf -f geojsonseq --add-unique-id=type_id -o pois-$name.geojsonseq --overwrite
+            # osmium export gibt einen geschlossenen Weg ZWEIMAL aus: als Linie und
+            # als Fläche — und die Fläche bekommt eine eigene ID (Area-ID = 2× Weg-ID),
+            # weshalb eine ID-Entdopplung nicht greift. Gemessen an drei Orten:
+            # Paket zählte immer Knoten + 2×Wege (Laim 94 statt 59, Sarajevo 31 statt 17).
+            # --geometry-types=point,linestring liefert genau ein Objekt je Knoten/Weg —
+            # dieselbe Menge, die auch die Overpass-Gegenprobe zählt.
+            lauf "Export POIs $name" osmium export pois-$name.osm.pbf -f geojsonseq --add-unique-id=type_id --geometry-types=point,linestring -o pois-$name.geojsonseq --overwrite
             rm -f roh.osm.pbf pois-$name.osm.pbf
             wc -l pois-$name.geojsonseq
             df -h / | tail -1

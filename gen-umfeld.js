@@ -114,10 +114,19 @@ async function main() {
     if (!kat) return;
     const p = punkt(g.geometry);
     if (!p) return;
-    // Die ersten Objekte als Probe aufheben: die Action-Logs sind ohne GitHub-Login
-    // nicht lesbar, deshalb wandert die Diagnose in die erzeugte Datei.
-    if (probe.length < 3) probe.push({ id: g.id, eigenschaften: Object.keys(g.properties).slice(0, 8), geometrie: g.geometry.type });
-    const id = g.properties["@id"] || g.properties["@type_id"] || g.id;
+    // Probe je Geometrietyp aufheben (die Action-Logs sind ohne GitHub-Login nicht
+    // lesbar, deshalb wandert die Diagnose in die erzeugte Datei).
+    if (!probe.some(x => x.geometrie === g.geometry.type) && probe.length < 4) {
+      probe.push({ id: g.id, geometrie: g.geometry.type, eigenschaften: Object.keys(g.properties).slice(0, 6) });
+    }
+    let id = g.properties["@id"] || g.properties["@type_id"] || g.id;
+    // Sicherheitsnetz: osmium vergibt Flächen eigene IDs (a = 2×Weg-ID bzw.
+    // 2×Relations-ID+1). Auf das Ursprungsobjekt zurückrechnen, damit Linie und
+    // Fläche desselben Wegs als EIN Objekt gelten.
+    if (typeof id === "string" && id[0] === "a") {
+      const n = +id.slice(1);
+      if (!isNaN(n)) id = n % 2 === 0 ? "w" + (n / 2) : "r" + ((n - 1) / 2);
+    }
     const schluessel = id != null ? "id:" + id : kat + "|" + p[0].toFixed(6) + "|" + p[1].toFixed(6);
     if (schonDa.has(schluessel)) { doppelt++; return; }
     schonDa.add(schluessel);
