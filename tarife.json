@@ -1,5 +1,5 @@
 {
- "preisstand": "2026-08-10",
+ "preisstand": "2026-08-17",
  "entfernt": [],
  "aktionen": [
   {
@@ -32,172 +32,32 @@
  ],
  "aenderungen": [
   {
-   "id": "maingau",
-   "was": "AC-Preisstruktur",
-   "alt": "Einheitlich",
-   "neu": "Dreistufig (Niedrig 0,52, Standard 0,72, Hoch 0,82)",
-   "quelle": "https://www.maingau-energie.de/e-mobilitaet"
-  },
-  {
-   "id": "maingau",
-   "was": "DC-Preisstruktur",
-   "alt": "Einheitlich",
-   "neu": "Dreistufig (Niedrig 0,62, Standard 0,72, Hoch 0,82)",
-   "quelle": "https://www.maingau-energie.de/e-mobilitaet"
-  },
-  {
-   "id": "maingau",
-   "was": "Blockiergebühr AC AbMin",
-   "alt": 240,
-   "neu": 180,
-   "quelle": "https://www.maingau-energie.de/e-mobilitaet"
-  },
-  {
-   "id": "swm-flex",
-   "was": "Roaming AC-Preis",
-   "alt": null,
-   "neu": 0.59,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-flex",
-   "was": "Roaming DC-Preis",
-   "alt": null,
-   "neu": 0.79,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-flex",
-   "was": "Blockiergebühr Roaming AC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-flex",
-   "was": "Blockiergebühr Roaming DC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-komfort",
-   "was": "einmalKosten",
-   "alt": 11.9,
-   "neu": 6.9,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-komfort",
-   "was": "Roaming AC-Preis",
-   "alt": null,
-   "neu": 0.54,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-komfort",
-   "was": "Roaming DC-Preis",
-   "alt": null,
-   "neu": 0.74,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-komfort",
-   "was": "Blockiergebühr Roaming AC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-komfort",
-   "was": "Blockiergebühr Roaming DC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-pro",
-   "was": "einmalKosten",
-   "alt": 11.9,
-   "neu": 0,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-pro",
-   "was": "Roaming AC-Preis",
-   "alt": null,
-   "neu": 0.52,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-pro",
-   "was": "Roaming DC-Preis",
-   "alt": null,
-   "neu": 0.64,
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-pro",
-   "was": "Blockiergebühr Roaming AC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 240 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "swm-pro",
-   "was": "Blockiergebühr Roaming DC",
-   "alt": "Je Säule; an SWM-Säulen moderat.",
-   "neu": "0,10 €/min nach 120 min, max. 25 €/Tag",
-   "quelle": "https://www.swm.de/dam/doc/emobilitaet/preisblatt-swm-ladekarte.pdf"
-  },
-  {
-   "id": "aral-klassik",
-   "was": "AC-Preis",
-   "alt": 0.54,
-   "neu": 0.47,
-   "quelle": "https://www.aral-pulse.de/"
-  },
-  {
-   "id": "aral-klassik",
-   "was": "DC-Preis (bis 50 kW)",
-   "alt": 0.69,
-   "neu": 0.52,
-   "quelle": "https://www.aral-pulse.de/"
-  },
-  {
-   "id": "aral-klassik",
-   "was": "DC-Preis (über 50 kW)",
-   "alt": 0.79,
-   "neu": 0.62,
-   "quelle": "https://www.aral-pulse.de/"
-  },
-  {
-   "id": "ionity-motion",
+   "id": "ionity-go",
    "was": "DC-Preis",
-   "alt": 0.53,
-   "neu": 0.49,
+   "alt": 0.68,
+   "neu": 0.66,
    "quelle": "https://ionity.eu/de/netzwerk-und-preise"
-  },
-  {
-   "id": "ionity-power",
-   "was": "DC-Preis",
-   "alt": 0.44,
-   "neu": 0.39,
-   "quelle": "https://ionity.eu/de/netzwerk-und-preise"
-  },
-  {
-   "id": "tesla-abo",
-   "was": "Grundgebühr",
-   "alt": 9.99,
-   "neu": 12.99,
-   "quelle": "https://www.tesla.com/de_de/charging"
   },
   {
    "id": "adhoc",
-   "was": "Ionity DC-Preis",
-   "alt": 0.72,
-   "neu": 0.79,
+   "was": "Ionity Direct DC-Preis",
+   "alt": 0.79,
+   "neu": 0.69,
    "quelle": "https://ionity.eu/de/netzwerk-und-preise"
+  },
+  {
+   "id": "kaufland-app",
+   "was": "DC-Preis (bis 149 kW)",
+   "alt": 0.47,
+   "neu": 0.44,
+   "quelle": "https://www.kaufland.de/services/e-laden.html"
+  },
+  {
+   "id": "aldi-app",
+   "was": "DC-Preis (bis 149 kW)",
+   "alt": 0.47,
+   "neu": 0.44,
+   "quelle": "https://www.e-ladestation.aldi-sued.de/"
   }
  ],
  "tarife": [
@@ -503,7 +363,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "0,49 €/kWh mit Abo. Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen. Preise bestätigt für August 2026."
+   "hinweis": "0,49 €/kWh mit Abo. Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen. Preise bestätigt für August 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
   },
   {
    "id": "ionity-power",
@@ -521,7 +381,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "0,39 €/kWh mit Abo. Monatlich kündbar. Preise bestätigt für August 2026."
+   "hinweis": "0,39 €/kWh mit Abo. Monatlich kündbar. Preise bestätigt für August 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
   },
   {
    "id": "ionity-go",
@@ -533,12 +393,12 @@
    "laender": "Europaweit an Ionity",
    "preise": {
     "ionity": {
-     "dc": 0.68,
+     "dc": 0.66,
      "unsicher": true
     }
    },
    "roaming": null,
-   "hinweis": "Ohne Grundgebühr. Ad-hoc an der Säule (Ionity Direct) kostet 0,79–0,80 €/kWh. Preise für App-Laden (Ionity Go) variieren, hier mit 0,68 €/kWh gerechnet. Preise bestätigt für August 2026."
+   "hinweis": "Ohne Grundgebühr. Ad-hoc an der Säule (Ionity Direct) kostet 0,69 €/kWh (seit Februar 2026). Preise für App-Laden (Ionity Go) sind seit Februar 2026 bei 0,66 €/kWh. Preise bestätigt für August 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
   },
   {
    "id": "tesla-app",
@@ -613,11 +473,11 @@
    "preise": {
     "lidl": {
      "ac": 0.29,
-     "dc": 0.47
+     "dc": 0.44
     }
    },
    "roaming": null,
-   "hinweis": "AC 0,29 €/kWh, DC 0,44 €/kWh, HPC ab 150 kW 0,47 €/kWh. Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf. Preise bestätigt für August 2026."
+   "hinweis": "AC 0,29 €/kWh, DC bis 149 kW 0,44 €/kWh, HPC ab 150 kW 0,47 €/kWh. Einmalig Kaufland Pay in der App freischalten. Perfekt: Laden beim Wocheneinkauf. Preise bestätigt für August 2026."
   },
   {
    "id": "aldi-app",
@@ -631,7 +491,7 @@
    "preise": {
     "aldi": {
      "ac": 0.29,
-     "dc": 0.47
+     "dc": 0.44
     }
    },
    "roaming": null,
@@ -640,7 +500,7 @@
     "ac": null,
     "dc": null
    },
-   "hinweis": "AC 0,29 — DC 0,44 (ab 50 kW) bzw. 0,47 (HPC ab 150 kW). Keine Grundgebühr. ~1.800 Ladepunkte an über 700 Filialen (auch München-Großhadern). Zahlung per QR/App oder Girocard/Kreditkarte direkt an der Säule — geht also sogar ganz ohne Registrierung. Preise bestätigt für August 2026."
+   "hinweis": "AC 0,29 — DC bis 149 kW 0,44 €/kWh (ab 50 kW) bzw. HPC ab 150 kW 0,47 €/kWh. Keine Grundgebühr. ~1.800 Ladepunkte an über 700 Filialen (auch München-Großhadern). Zahlung per QR/App oder Girocard/Kreditkarte direkt an der Säule — geht also sogar ganz ohne Registrierung. Preise bestätigt für August 2026."
   },
   {
    "id": "qwello-app",
@@ -703,7 +563,7 @@
    "laender": "Überall",
    "preise": {
     "ionity": {
-     "dc": 0.79,
+     "dc": 0.69,
      "unsicher": true
     }
    },
@@ -711,7 +571,7 @@
     "ac": 0.64,
     "dc": 0.79
    },
-   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,79–0,80 €/kWh. Roaming-Preise sind Durchschnittswerte und können stark variieren. Preise bestätigt für August 2026."
+   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,69 €/kWh (seit Februar 2026). Roaming-Preise sind Durchschnittswerte und können stark variieren. Preise bestätigt für August 2026."
   },
   {
    "id": "vattenfall-incharge",
