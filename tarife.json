@@ -1,5 +1,5 @@
 {
- "preisstand": "2026-09-07",
+ "preisstand": "2026-09-14",
  "entfernt": [],
  "aktionen": [
   {
@@ -54,14 +54,14 @@
    "was": "DC-Preis",
    "alt": 0.66,
    "neu": 0.79,
-   "quelle": "https://hh-auto.de/ionity-preiserhoehung-2026/"
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
   },
   {
    "id": "adhoc",
    "was": "Ionity Direct DC-Preis",
    "alt": 0.69,
    "neu": 0.79,
-   "quelle": "https://hh-auto.de/ionity-preiserhoehung-2026/"
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
   },
   {
    "id": "kaufland-app",
@@ -174,6 +174,104 @@
    "alt": 100,
    "neu": 100,
    "quelle": "https://www.autobild.de/artikel/tesla-supercharger-kosten-ladezeit-1000000.html"
+  },
+  {
+   "id": "maingau",
+   "was": "einmalKosten",
+   "alt": 0,
+   "neu": 9.99,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEL5IQYUDn2TWDo_S9nWxEOMImnfNbwj1NT6IUqNx5bNEizAhUvadYtKuCDEAHcRVd_dUxPojbJZ4UzclXsAjY7kQwgEqYIo1p1w7s7z9CZkQn0DkWLKvjT1zU03hhsSzetSBGN9DFihTP-ltJjsOIph-xtFP0q87B9uNx1xaXgt-U="
+  },
+  {
+   "id": "enbw-s",
+   "was": "Ionity DC-Roaming",
+   "alt": 0.89,
+   "neu": 0.79,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "enbw-m",
+   "was": "Ionity DC-Roaming",
+   "alt": 0.79,
+   "neu": 0.79,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "enbw-l",
+   "was": "Ionity DC-Roaming",
+   "alt": 0.79,
+   "neu": 0.79,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "aral-extra",
+   "was": "AC-Preis",
+   "alt": null,
+   "neu": 0.41,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHBRxskOY4koLuvtxzoauGWmPmtd5PBEm-Uds3R5qNxeLDgVN5TlIoUL9EwdHeFGvEGl-HH3vAsQVtlXu-3a-84icAEeirIkQzh9nmJjWtI2lT5fY-4ZkSqfrP2R6clG27UhxkBb8u-UfdGip7bkavvrOidi0vgGmK7dRQX2lvOSYv3rvrFeSYREw="
+  },
+  {
+   "id": "aral-klassik",
+   "was": "Blockiergebühr AbMin AC",
+   "alt": null,
+   "neu": 120,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtrMLFnC3F6XUorh0tZgB0JjvaZLZurbNjrauBNcV35cSLQWOYAWl8eWOUooM2_B_wovKn3BtmP0AEma_HaDpqLYfz9dqJTv0VkonIyhP3oBpXRgZ7xqKVWtJy_1gqtXH4BtHoWFH2rzvI58RF9bU6w7E-PFwQKHm_D2aIBPzXPjuYxyD11RAbOPM="
+  },
+  {
+   "id": "aral-klassik",
+   "was": "Blockiergebühr AbMin DC",
+   "alt": null,
+   "neu": 45,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtrMLFnC3F6XUorh0tZgB0JjvaZLZurbNjrauBNcV35cSLQWOYAWl8eWOUooM2_B_wovKn3BtmP0AEma_HaDpqLYfz9dqJTv0VlyqcjTpmixC7az7WwNVO43u8OGmsFCFcpHav2w4IaQQW81Mo3MrsaPaaWS3l5K4mrsq56EKmDe0IC3mOgdvyi0qPEi8vGk34Osg69bjoIoMPzfnuEIqy_A=="
+  },
+  {
+   "id": "aral-extra",
+   "was": "Blockiergebühr AbMin AC",
+   "alt": null,
+   "neu": 120,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtrMLFnC3F6XUorh0tZgB0JjvaZLZurbNjrauBNcV35cSLQWOYAWl8eWOUooM2_B_wovKn3BtmP0AEma_HaDpqLYfz9dqJTv0VkonIyhP3oBpXRgZ7xqKVWtJy_1gqtXH4BtHoWFH2rzvI58RF9bU6w7E-PFwQKHm_D2aIBPzXPjuYxyD11RAbOPM="
+  },
+  {
+   "id": "aral-extra",
+   "was": "Blockiergebühr AbMin DC",
+   "alt": null,
+   "neu": 45,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtrMLFnC3F6XUorh0tZgB0JjvaZLZurbNjrauBNcV35cSLQWOYAWl8eWOUooM2_B_wovKn3BtmP0AEma_HaDpqLYfz9dqJTv0VkonIyhP3oBpXRgZ7xqKVWtJy_1gqtXH4BtHoWFH2rzvI58RF9bU6w7E-PFwQKHm_D2aIBPzXPjuYxyD11RAbOPM="
+  },
+  {
+   "id": "ionity-motion",
+   "was": "DC-Preis",
+   "alt": 0.53,
+   "neu": 0.49,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "ionity-power",
+   "was": "DC-Preis",
+   "alt": 0.42,
+   "neu": 0.39,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "ionity-go",
+   "was": "DC-Preis",
+   "alt": 0.68,
+   "neu": 0.79,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "adhoc",
+   "was": "Ionity Direct DC-Preis",
+   "alt": 0.72,
+   "neu": 0.79,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHPK48TZq7XzZPBqGIjNxniGklLpgJN_UeDqx6Djvadvzsc01viT6mP2jpjuCzmY0nLTcatPzasNCLd2SbrEeZ-kz_eLAf5EL4sVE-9ycnHHP1pgzwdmV_92S8-xdc1VF_uMoH24v7AevBFt8QKqne1JCvZ5w5MbN-WJaEtN1df2pcMdj3hIPpMJmhvlsFFHRDLqdKd_cysQ1POJRaIGKHcIA="
+  },
+  {
+   "id": "tesla-abo",
+   "was": "DC-Preis",
+   "alt": 0.47,
+   "neu": 0.35,
+   "quelle": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHIXs_EF1LHUPrxjuSuIjv36tYkga_GIqOFd5RtrFqq6oNp_VxTss7YqMUfM2hv0XCfueIh_pzThJ-Iegp8VERLLN_Uw5hHjmokEyklr7gdBST7wWB_8mpzVi6Y9GC0RkZKEyBX3k7Jqi-SUFngw1gXsIrXWlEaYKaKcWxJgS1JSgWC6YVaeHgeRXZjSg=="
   }
  ],
  "tarife": [
@@ -182,7 +280,8 @@
    "name": "Maingau EinfachStromLaden",
    "kategorie": "frei",
    "bestellLink": "https://www.maingau-energie.de/e-mobilitaet",
-   "einmalKosten": 0,
+   "einmalKosten": 9.99,
+   "einmalHinweis": "9,99 € je Ladekarte (Preisblatt maingau-energie.de, Stand 09/2026).",
    "grund": 0,
    "medium": "Karte + App",
    "laender": "EU-weit (inkl. AT/SI/HR)",
@@ -201,7 +300,7 @@
     "ac": 180,
     "dc": 60
    },
-   "hinweis": "Seit 13.08.2025 neue Preisstruktur. AC-Laden in ganz Europa 0,62 €/kWh. DC-Laden in Deutschland (inkl. Ionity) 0,62 €/kWh, im Ausland sowie bei Aral pulse, Allego, Mer, EnBW, EWE Go und E.ON 0,79 €/kWh. Maingau-Energiekunden zahlen je 10 ct weniger. Blockiergebühr AC nach 180 min, DC nach 60 min, gedeckelt bei 12 €/Ladevorgang. Roaming-Preise sind je nach Betreiber variabel und müssen in der App geprüft werden.",
+   "hinweis": "Seit 13.08.2025 neue Preisstruktur. AC-Laden in ganz Europa 0,62 €/kWh. DC-Laden in Deutschland (inkl. Ionity) 0,62 €/kWh, im Ausland sowie bei Aral pulse, Allego, Mer, EnBW, EWE Go und E.ON 0,79 €/kWh. Maingau-Energiekunden zahlen je 10 ct weniger. Blockiergebühr AC nach 180 min, DC nach 60 min, gedeckelt bei 12 €/Ladevorgang. Roaming-Preise sind je nach Betreiber variabel und müssen in der App geprüft werden. Preise bestätigt für September 2026.",
    "basisEmpfehlung": true
   },
   {
@@ -220,7 +319,7 @@
      "dc": 0.51
     },
     "ionity": {
-     "dc": 0.89,
+     "dc": 0.79,
      "unsicher": true
     }
    },
@@ -409,8 +508,8 @@
    "roaming": null,
    "blockier": "An eigenen Aral pulse Ladepunkten entfällt die Blockiergebühr bei Zahlung per App, Ladekarte, Kreditkarte oder QR-Code. Bei Fremdanbietern 0,15 €/min (AC nach 120 min, DC nach 45 min).",
    "blockierAbMin": {
-    "ac": null,
-    "dc": null
+    "ac": 120,
+    "dc": 45
    },
    "hinweis": "Seit 1.7.2026 gesenkt. AC 0,47 €/kWh, DC bis 50 kW 0,52 €/kWh, HPC (über 50 kW) 0,62 €/kWh. Kostenlos, nur App-Registrierung. Preise bestätigt für September 2026.",
    "basisEmpfehlung": true
@@ -433,8 +532,8 @@
    "roaming": null,
    "blockier": "An eigenen Aral pulse Ladepunkten entfällt die Blockiergebühr bei Zahlung per App, Ladekarte, Kreditkarte oder QR-Code. Bei Fremdanbietern 0,15 €/min (AC nach 120 min, DC nach 45 min).",
    "blockierAbMin": {
-    "ac": null,
-    "dc": null
+    "ac": 120,
+    "dc": 45
    },
    "hinweis": "HPC 0,54 €/kWh, DC bis 50 kW 0,46 €/kWh, AC 0,41 €/kWh. Lohnt ab ~37 kWh/Monat an Aral pulse. Preise bestätigt für September 2026."
   },
@@ -477,11 +576,11 @@
    "laender": "Europaweit an Ionity",
    "preise": {
     "ionity": {
-     "dc": 0.53
+     "dc": 0.49
     }
    },
    "roaming": null,
-   "hinweis": "0,53 €/kWh mit Abo (Mindestpreis). Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen. Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
+   "hinweis": "0,49 €/kWh mit Abo (Mindestpreis). Monatlich kündbar — ideal, um es nur für Reisemonate zu buchen. Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
   },
   {
    "id": "ionity-power",
@@ -495,11 +594,11 @@
    "laender": "Europaweit an Ionity",
    "preise": {
     "ionity": {
-     "dc": 0.42
+     "dc": 0.39
     }
    },
    "roaming": null,
-   "hinweis": "0,42 €/kWh mit Abo (Mindestpreis). Monatlich kündbar. Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
+   "hinweis": "0,39 €/kWh mit Abo (Mindestpreis). Monatlich kündbar. Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026)."
   },
   {
    "id": "ionity-go",
@@ -511,12 +610,12 @@
    "laender": "Europaweit an Ionity",
    "preise": {
     "ionity": {
-     "dc": 0.68,
+     "dc": 0.79,
      "unsicher": true
     }
    },
    "roaming": null,
-   "hinweis": "Ohne Grundgebühr. Ad-hoc an der Säule (Ionity Direct) kostet 0,72 €/kWh (Mindestpreis). Preise für App-Laden (Ionity Go) sind seit September 2026 bei 0,68 €/kWh (Mindestpreis). Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026).",
+   "hinweis": "Ohne Grundgebühr. Ad-hoc an der Säule (Ionity Direct) kostet 0,79 €/kWh (Mindestpreis). Preise für App-Laden (Ionity Go) sind seit Juli 2026 bei 0,79 €/kWh (Mindestpreis). Preise bestätigt für September 2026. Zusätzlich: Ionity belohnt das Laden bis 80% oder außerhalb der Stoßzeiten mit kWh-Gutschriften (Fast Lane Reward / Off-Peak Reward, seit Juli 2026).",
    "blockier": "Keine Blockiergebühr.",
    "blockierAbMin": {
     "ac": null,
@@ -538,7 +637,7 @@
     }
    },
    "roaming": null,
-   "hinweis": "0,30–0,67 €/kWh je Standort und Uhrzeit (morgens oft günstiger) — hier mit 0,61 €/kWh gerechnet. Rund 240 Standorte in DE, Großteil für Fremdmarken offen. Preise bestätigt für September 2026.",
+   "hinweis": "Seit 11. September 2026 wurden die Preise gesenkt. 0,20–0,39 €/kWh für Mitglieder/Tesla-Fahrer, für Nicht-Mitglieder sind die Preise höher (ca. 0,61 €/kWh). Preise variieren je Standort und Uhrzeit (morgens oft günstiger). Rund 240 Standorte in DE, Großteil für Fremdmarken offen. Preise bestätigt für September 2026.",
    "blockier": "Überlastungsgebühr, wenn der Supercharger-Standort ausgelastet ist und der Ladevorgang beendet ist oder die Batterie 80% erreicht hat. 5 Minuten Karenzzeit, danach Gebühr pro Minute.",
    "blockierAbMin": {
     "ac": null,
@@ -557,12 +656,12 @@
    "laender": "Europaweit an Superchargern",
    "preise": {
     "tesla": {
-     "dc": 0.47,
+     "dc": 0.35,
      "unsicher": true
     }
    },
    "roaming": null,
-   "hinweis": "0,30–0,67 €/kWh je Standort und Uhrzeit — hier mit 0,47 €/kWh gerechnet. Monatlich kündbar, gut für Urlaubsmonate (Supercharger auch in SI/HR). Preise bestätigt für September 2026.",
+   "hinweis": "Seit 11. September 2026 wurden die Preise gesenkt. 0,20–0,39 €/kWh je Standort und Uhrzeit (morgens oft günstiger) — hier mit 0,35 €/kWh gerechnet. Monatlich kündbar, gut für Urlaubsmonate (Supercharger auch in SI/HR). Preise bestätigt für September 2026.",
    "blockier": "Überlastungsgebühr, wenn der Supercharger-Standort ausgelastet ist und der Ladevorgang beendet ist oder die Batterie 80% erreicht hat. 5 Minuten Karenzzeit, danach Gebühr pro Minute.",
    "blockierAbMin": {
     "ac": null,
@@ -701,7 +800,7 @@
    "laender": "Überall",
    "preise": {
     "ionity": {
-     "dc": 0.72,
+     "dc": 0.79,
      "unsicher": true
     }
    },
@@ -709,7 +808,8 @@
     "ac": 0.64,
     "dc": 0.79
    },
-   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89 €/kWh. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,72 €/kWh (Mindestpreis). Roaming-Preise sind Durchschnittswerte und können stark variieren. Preise bestätigt für September 2026."
+   "hinweis": "Der Notnagel ohne jede Registrierung — typisch 0,59–0,89 €/kWh. Seit AFIR (EU-Regel) muss jede neue DC-Säule über 50 kW Kartenzahlung anbieten. Ionity Direct: 0,79 €/kWh (Mindestpreis). Roaming-Preise sind Durchschnittswerte und können stark variieren. Preise bestätigt für September 2026.",
+   "blockier": "Keine Blockiergebühr an Ionity-Säulen. Bei anderen Anbietern können Blockiergebühren anfallen."
   },
   {
    "id": "vattenfall-incharge",
